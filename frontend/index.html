@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Virtual AR Glasses - Industrial Maintenance</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Three.js 3D Viewport -->
+    <div id="viewport-container"></div>
+
+    <!-- AR HUD Overlay -->
+    <div id="ar-hud">
+      <!-- Top AR Status Bar -->
+      <header class="hud-top-bar">
+        <div class="hud-brand">
+          <span class="hud-icon">🥽</span>
+          <span class="hud-title">VIRTUAL AR GLASSES <span class="badge">SYS v2.4</span></span>
+        </div>
+        <div class="hud-status-group">
+          <div id="ws-indicator" class="hud-status connecting">
+            <span class="pulse-dot"></span>
+            <span id="ws-status-text">CONNECTING TO BACKEND...</span>
+          </div>
+          <div class="hud-rec-indicator">
+            <span class="rec-dot"></span>
+            <span>HUD LIVE</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Center Reticle / Crosshair -->
+      <div class="hud-center">
+        <div class="reticle">
+          <div class="reticle-dot"></div>
+          <div class="reticle-bracket top-left"></div>
+          <div class="reticle-bracket top-right"></div>
+          <div class="reticle-bracket bottom-left"></div>
+          <div class="reticle-bracket bottom-right"></div>
+        </div>
+        <div class="hud-coords" id="camera-coords">CAM: [X: 0.0, Y: 1.6, Z: 3.5]</div>
+      </div>
+
+      <!-- Pointer Lock Overlay Prompt -->
+      <div id="click-to-look-overlay" class="pointer-hint visible">
+        <div class="hint-card">
+          <div class="hint-icon">🎯</div>
+          <h3>Click Viewport to Enable AR Look</h3>
+          <p><strong>WASD / Arrow Keys:</strong> Walk around pump</p>
+          <p><strong>Mouse:</strong> Look around (Pitch / Yaw)</p>
+          <p><strong>ESC:</strong> Release cursor</p>
+        </div>
+      </div>
+
+      <!-- Top-Right: Frame Streaming Monitor -->
+      <aside class="hud-stream-monitor">
+        <div class="monitor-header">
+          <span class="pulse-dot active"></span>
+          <span>GEMINI VISION STREAM (1 Hz)</span>
+        </div>
+        <div class="monitor-preview">
+          <img id="stream-thumbnail" alt="Camera feed preview sent to Gemini" />
+          <div class="monitor-overlay-tags">
+            <span id="frame-fps">1.0 FPS</span>
+            <span id="frame-res">512×512 JPEG</span>
+          </div>
+        </div>
+        <div class="monitor-footer">
+          <span id="frame-counter">Buffered: 0 frames</span>
+          <span id="frame-timestamp">--:--:--</span>
+        </div>
+      </aside>
+
+      <!-- Stretch Feature: Fault Toggle Widget -->
+      <div class="hud-fault-control">
+        <label class="fault-switch-label" title="Simulate pressure anomaly and blue fluid leak">
+          <input type="checkbox" id="toggle-fault" />
+          <span class="toggle-slider"></span>
+          <span class="toggle-text">SIMULATE PUMP FAULT (Overpressure & Leak)</span>
+        </label>
+      </div>
+
+      <!-- Bottom: Gemini AR Maintenance Assistant Panel -->
+      <section class="hud-assistant-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="assistant-avatar">✨</span>
+            <span class="panel-heading">GEMINI VISION COPILOT</span>
+            <span class="model-tag" id="active-model-tag">Gemini Flash</span>
+          </div>
+          <div class="quick-chips">
+            <button class="chip-btn" data-query="What do you see?">What do you see?</button>
+            <button class="chip-btn" data-query="Is anything wrong with this pump?">Is anything wrong?</button>
+            <button class="chip-btn" data-query="Check the pressure gauge reading.">Inspect gauge</button>
+            <button class="chip-btn" data-query="What is the valve status?">Check valve</button>
+          </div>
+        </div>
+
+        <div class="panel-body">
+          <div id="answer-stream" class="answer-box">
+            <span class="placeholder-text">Awaiting question. Walk around the pump, aim the glasses, and submit a query...</span>
+          </div>
+        </div>
+
+        <div class="panel-metrics">
+          <span class="metric-item">TTFT: <strong id="metric-ttft">-- ms</strong></span>
+          <span class="metric-divider">|</span>
+          <span class="metric-item">Total Latency: <strong id="metric-latency">-- ms</strong></span>
+          <span class="metric-divider">|</span>
+          <span class="metric-item">Status: <span id="metric-status">Ready</span></span>
+        </div>
+
+        <form id="query-form" class="panel-input-form">
+          <input
+            type="text"
+            id="query-input"
+            class="query-input"
+            placeholder="Ask Gemini about the pump in front of you..."
+            autocomplete="off"
+          />
+          <button type="submit" id="send-btn" class="send-btn">
+            <span>Send</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </form>
+      </section>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
