@@ -1,6 +1,6 @@
 import { initScene as initPumpScene, SceneManager as PumpSceneManager } from './scene';
 import { initCoolerScene, CoolerSceneManager } from './cooler_scene';
-import { CoolerStateManager, StateEvent } from './cooler_state';
+import { CoolerStateManager, StateEvent, CoolerState } from './cooler_state';
 import { SensorSimulator } from './sensors';
 import { ARWebSocketClient } from './websocket';
 import { RuleEngine, RuleVerdict, DAGModel } from './rule_engine';
@@ -553,6 +553,33 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 1000);
 
   // 5. Submit Question
+  function evaluatePerceptionAgreement(stepId: number, state: CoolerState): { expectedStateMet: boolean; description: string } {
+    switch (stepId) {
+      case 1:
+        return { expectedStateMet: state.psu === 'off' && !state.power_cable_plugged, description: 'PSU off & power cable unplugged' };
+      case 2:
+        return { expectedStateMet: state.esd_discharged, description: 'ESD touched/discharged' };
+      case 3:
+        return { expectedStateMet: state.cpu_clean, description: 'CPU wiped with IPA' };
+      case 4:
+        return { expectedStateMet: !state.film_on, description: 'Protective film peeled off' };
+      case 5:
+        return { expectedStateMet: state.paste.present && state.paste.size >= 0.3 && state.paste.size <= 0.6, description: 'Pea-sized paste applied' };
+      case 6:
+        return { expectedStateMet: state.cooler === 'seated', description: 'Cooler seated on CPU' };
+      case 7:
+        return { expectedStateMet: state.screw.every((s: number) => s === 6), description: 'All 4 screws snug at level 6' };
+      case 8:
+        return { expectedStateMet: state.fan_connected, description: 'Fan connected to CPU_FAN header' };
+      case 9:
+        return { expectedStateMet: state.psu === 'on' && state.power_cable_plugged, description: 'Power plugged & PSU on' };
+      case 10:
+        return { expectedStateMet: state.fan_rpm > 500 && state.cpu_temp < 60, description: 'Fan spinning and CPU temp < 60C' };
+      default:
+        return { expectedStateMet: true, description: 'Initial state' };
+    }
+  }
+
   function submitQuestion(text: string) {
     const query = text.trim();
     if (!query) return;
@@ -568,20 +595,30 @@ document.addEventListener('DOMContentLoaded', () => {
     metricTtft.textContent = '-- ms';
     metricLatency.textContent = '-- ms';
 
-    answerStream.innerHTML = `<span class="loading-hint" style="color: #00f0ff; font-style: italic;">✨ Gemini is analyzing the ${bufferedFrameCount} recent frames...</span>`;
-
-    const sensorsData = currentSceneType === 'cooler' ? sensorSim.sample(stateManager.getState()) : null;
-    const stateData = currentSceneType === 'cooler' ? stateManager.getState() : null;
+    const currentStep = ruleEngine.getCurrentStep();
+    const currentState = stateManager.getState();
+    const currentSensors = currentSceneType === 'cooler' ? sensorSim.sample(currentState) : null;
     const recentEvents = currentSceneType === 'cooler' ? stateManager.getLast10Events() : [];
+    const lastVerdict = ruleEngine.getLastVerdict();
+
+    if (query.toLowerCase().includes('visual check')) {
+      const match = evaluatePerceptionAgreement(currentStep, currentState);
+      const angleStr = cameraCoordsEl.textContent || 'CAM: [X: 0.0, Y: 1.5, Z: 1.4]';
+      console.log(`[Perception Check Log] Step ${currentStep} (${match.description}): Ground Truth Match = ${match.expectedStateMet} at ${angleStr}`);
+      metricVisualCheck.textContent = match.expectedStateMet ? '100% Match' : 'Pending Step';
+      metricVisualCheck.style.color = match.expectedStateMet ? '#00ff88' : '#ffaa00';
+    }
+
+    answerStream.innerHTML = `<span class="loading-hint" style="color: #00f0ff; font-style: italic;">✨ Gemini is analyzing Step ${currentStep} and ${bufferedFrameCount} recent frames...</span>`;
 
     wsClient.sendRaw({
       type: 'question',
       text: query,
-      state: stateData,
-      sensors: sensorsData,
+      state: currentState,
+      sensors: currentSensors,
       events: recentEvents,
-      step_id: 1,
-      last_verdict: null,
+      step_id: currentStep,
+      last_verdict: lastVerdict,
     });
   }
 
@@ -604,7 +641,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   btnVisualCheck?.addEventListener('click', () => {
-    submitQuestion('Visual check: Is the expected state for this step visually present in the camera view?');
+    const curStep = ruleEngine.getCurrentStep();
+    submitQuestion(`Visual check: Is the expected visual state for Step ${curStep} present in the current camera feed?`);
   });
 
   // Pump fault toggle

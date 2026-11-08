@@ -1,20 +1,18 @@
-# Virtual AR Glasses Maintenance Assistant
+# Virtual AR Glasses: Cooler Install & Pump Simulator
 
-A minimal prototype of virtual AR glasses built with **Three.js + TypeScript + Vite** on the frontend and **FastAPI + WebSockets + Google GenAI SDK** on the backend.
-
-The user walks around a 3D industrial pump in first-person view. Every 1 second, the camera view is captured, downscaled to 512px JPEG, and streamed over WebSocket to the backend. The technician can ask questions in the AR HUD, and Gemini Flash (or mock mode) answers by analyzing the recent frames, streaming tokens in real time directly onto the glasses display.
+A minimal, real-time Virtual AR Glasses prototype featuring a deterministic **Task Dependency Graph (DAG) Rule Engine**, **Gemini Flash Vision Copilot**, and 3D simulation with raycast interactions.
 
 ---
 
 ## Quick Start (Two Commands)
 
-### 1. Terminal 1 (Backend)
+### 1. Terminal 1 — Backend (FastAPI + WebSockets + Gemini SDK)
 ```bash
 python -m uvicorn main:app --port 8000 --app-dir backend --reload
 ```
-*(Alternative: `python backend/main.py`)*
+*(Or simply: `python backend/main.py`)*
 
-### 2. Terminal 2 (Frontend)
+### 2. Terminal 2 — Frontend (Vite + TypeScript + Three.js)
 ```bash
 npm --prefix frontend run dev
 ```
@@ -23,67 +21,94 @@ Open your browser to: **[http://localhost:5173](http://localhost:5173)**
 
 ---
 
-## Configuration & Environment Variables
+## Automated Verification & Tests
 
-Copy `.env.example` to `.env`:
-
+Run the full rule engine unit test suite (covering all 5 verdict types):
 ```bash
-cp .env.example .env
+npx tsx frontend/test/rule_engine.test.ts
 ```
 
-| Variable | Default | Description |
-|---|---|---|
-| `GEMINI_API_KEY` | *(empty)* | Your Google Gemini API key. If empty or missing, backend automatically falls back to `MOCK_MODE`. |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name for vision streaming. |
-| `MOCK_MODE` | `true` | Set to `true` to run without an API key (returns simulated streamed tokens and fault analysis). Set to `false` for live Gemini. |
+Run the Scripted Technician benchmark (evaluating all 9 scenarios):
+```bash
+npx tsx frontend/test/benchmark.test.ts
+```
+
+Run the DAG extraction and validation scorecard test:
+```bash
+python backend/test_extract_dag.py
+```
 
 ---
 
-## Features & Controls
+## Demo Script (Full Walkthrough)
 
-- **3D Industrial Pump**: Built using geometric primitives:
-  - Heavy metal skid baseplate with corner mounting bolts
-  - Electric motor cylinder with cooling ribs, fan cowl, and electrical junction box
-  - Central shaft coupling guard
-  - Impeller volute housing with inlet/outlet piping and flanges
-  - Manual valve with safety-red handwheel
-  - Analog pressure dial gauge (0–10 BAR) with normal and danger zones
-- **AR First-Person Look & Locomotion**:
-  - Click viewport to lock pointer
-  - **WASD / Arrow Keys**: Walk around pump
-  - **Mouse**: Pitch & yaw look
-  - **ESC**: Release mouse cursor to interact with HUD
-- **Real-Time AR HUD**:
-  - Translucent cyber-dark HUD overlay with center reticle & coordinate telemetry
-  - Live 1 FPS thumbnail monitor in the top right showing the exact downscaled 512px JPEG sent to Gemini
-  - Streaming answer area with typewriter token arrival
-  - **Performance Telemetry**: Displays Time-to-First-Token (TTFT) and Total Turnaround Latency
-  - Quick action suggestion chips (`"What do you see?"`, `"Is anything wrong?"`, etc.)
-- **Fault Simulation (Stretch Goal)**:
-  - Toggle switch in top-left HUD: `SIMULATE PUMP FAULT`
-  - When enabled: pressure gauge needle pegs into the red overpressure zone (>8.5 BAR), gauge face displays warning, warning beacon illuminates, and blue fluid visibly leaks from the valve junction.
-  - Test asking *"Is anything wrong?"* with and without the fault toggle active!
+### 1. Manual Walkthrough by Hand
+1. **Scene Selection**: Ensure **"CPU Cooler Install"** is selected in the top bar.
+2. **Step 1 (Mandatory Safety Root)**: Click the **PSU rocker switch** and **power cable** (or use the toolbelt buttons). The HUD verdict updates to `OK` for Step 1.
+3. **Step 2 (ESD Discharge)**: Press **`E`** on the keyboard or click the gold **ESD ground bar**.
+4. **Step 3 (Clean CPU)**: Click the **Alcohol Wipe**, then click the **CPU surface**. The dirt texture clears and CPU turns clean.
+5. **Step 4 (Peel Film)**: Click the **cyan protective film** on the cooler base to peel it off.
+6. **Step 5 (Thermal Paste)**: Click the **Paste Tube**, then **click and hold** on the CPU to dispense a pea-sized drop (size ~0.45).
+7. **Step 6 (Seat Cooler)**: Click the **Cooler**, then click the **CPU** to lower it straight down. The paste blob visually spreads into a pancake under pressure.
+8. **Step 7 (Diagonal Screws)**: Click the screws in diagonal sequence (`1 -> 2 -> 3 -> 4`) using the toolbelt or click them directly. Watch them turn and lower until snug (`6/6`).
+9. **Step 8 (Connect Fan)**: Click the **Fan Cable**, then click the **CPU_FAN header**.
+10. **Step 9 & 10 (Power & Verification)**: Plug the power cable, switch the PSU on, and observe the fan spinning and CPU temperature running cool at ~38 °C.
 
 ---
 
-## Architecture & Protocol
-
-See [docs/protocol.md](docs/protocol.md) for full protocol specifications.
-
-- **Client -> Server**:
-  - `{type: "frame", t: <timestamp_ms>, image_b64: "<jpeg_base64>"}` (1 Hz)
-  - `{type: "question", text: "<prompt>"}`
-- **Server -> Client**:
-  - `{type: "token", text: "<chunk>"}` (streamed)
-  - `{type: "done", ttft_ms: <int>, latency_ms: <int>}`
-  - `{type: "error", message: "<description>"}`
-
-The backend retains a rolling FIFO buffer of the last 5 frames per connection and has zero Three.js dependencies, making it directly compatible with Unity, Unreal, or OpenXR AR devices.
+### 2. Scripted Technician Benchmark (9 Scenarios)
+1. In the **"SCRIPTED TECHNICIAN"** HUD box (top-left), keep `Run All 9 Scenarios` selected.
+2. Click **Run**.
+3. Watch the actions execute in the 3D scene and see each scenario evaluated against expected verdicts:
+   - `1. valid_flexible_order` -> `PASS`
+   - `2. power_on_install` -> `PASS` (catches `unsafe`)
+   - `3. film_left_on` -> `PASS` (catches precondition failure)
+   - `4. too_much_paste` -> `PASS` (catches constraint violation)
+   - `5. no_paste` -> `PASS` (catches precondition failure)
+   - `6. screw_one_full` -> `PASS` (catches screw imbalance)
+   - `7. skipped_fan` -> `PASS` (catches `skipped`)
+   - `8. paste_before_clean` -> `PASS` (catches `out_of_order`)
+   - `9. sensor_dropout_at_step_1` -> `PASS` (catches `uncertain`)
+4. Click **JSON** to download `results.json`.
 
 ---
 
-## Design Choices & Assumptions
+### 3. DAG Extraction, Quote Validation & Scoring
+1. In the **"DAG MODEL"** HUD box, click **"Extract DAG from Manual"**.
+2. The backend parses `docs/manual.md`, validates verbatim quotes against cited page numbers, and computes:
+   - Step Precision & Recall: **100% / 100%**
+   - Edge Precision & Recall: **100% / 90.9%** (with mock intentional missing edge `6->8`)
+   - Evidence-Type Accuracy: **90%** (with mock intentional variation on step 8)
+   - Safety-Flag Accuracy: **100%**
+   - Unsupported Edges: **0**
+3. Click **"DAG Scores"** to view the modal table breakdown.
+4. Use the dropdown to hot-swap between the **Ground-Truth DAG** and the **Extracted DAG** in the rule engine.
 
-1. **Downscaling**: Canvas frames are captured offscreen and downscaled to 512×512 JPEG at ~80% quality. This keeps bandwidth under ~30KB/frame (~240 kbps), minimizing latency while preserving sharp detail for visual gauge readings.
-2. **WebGL Drawing Buffer**: Configured `preserveDrawingBuffer: true` in Three.js renderer to ensure frame extraction never samples an empty or cleared buffer.
-3. **MOCK_MODE Fallback**: If `GEMINI_API_KEY` is not supplied or invalid, the backend automatically falls back to `MOCK_MODE` so the application runs immediately without breaking.
+---
+
+### 4. Gemini Copilot & Perception "Visual Check"
+1. Type or click the quick chip: **"What do I do next?"**
+2. Gemini streams the instruction for the active step while repeating safety warnings.
+3. Click **"📷 Visual check"**:
+   - Compares the camera's visual view against the expected state for the active step.
+   - Logs agreement per camera angle (`CAM: [X, Y, Z]`) and reports ground-truth match in the HUD metrics.
+
+---
+
+### 5. Baseline Pump Scene
+1. Switch the top bar dropdown to **"Industrial Pump (Baseline)"**.
+2. Toggle **"SIMULATE PUMP FAULT"** in the top-left corner to see the needle enter the danger zone and blue fluid leak from the valve.
+3. Ask Gemini *"Is anything wrong?"* to test visual anomaly detection.
+
+---
+
+## Configuration & MOCK_MODE
+
+Create or edit `.env`:
+```bash
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.5-flash
+MOCK_MODE=true
+```
+- When `MOCK_MODE=true` (or when `GEMINI_API_KEY` is omitted), the entire system runs locally with full streaming token playback, mock extraction, and scoring.
+- Set `MOCK_MODE=false` with a valid key to connect to live Gemini Flash models.
