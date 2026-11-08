@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import base64
@@ -24,7 +25,9 @@ MOCK_MODE = MOCK_MODE_ENV in ("true", "1", "yes") or not GEMINI_API_KEY
 
 SYSTEM_PROMPT = (
     "You are an AR maintenance assistant seeing through the technician's glasses. "
-    "Answer briefly and only about what you can see."
+    "The rule engine's verdict is authoritative. Answer only from the supplied step, "
+    "part state, sensor readings, and manual. If unsure say so. "
+    "Always repeat the step's safety warnings."
 )
 
 app = FastAPI(title="Virtual AR Glasses Maintenance Assistant")
@@ -61,48 +64,285 @@ async def health():
     }
 
 
-def generate_mock_stream_response(question: str, frame_count: int):
+def parse_manual_pages() -> dict[int, str]:
+    """Parse docs/manual.md into page number -> text mapping."""
+    manual_path = Path(__file__).resolve().parent.parent / "docs" / "manual.md"
+    if not manual_path.exists():
+        return {}
+    content = manual_path.read_text(encoding="utf-8")
+    pages = {}
+    parts = re.split(r'---\s*Page\s*(\d+):[^-]*---', content)
+    for i in range(1, len(parts), 2):
+        page_num = int(parts[i])
+        page_text = parts[i + 1].strip()
+        pages[page_num] = page_text
+    return pages
+
+
+def load_ground_truth_dag() -> dict:
+    gt_path = Path(__file__).resolve().parent.parent / "dag" / "ground_truth.json"
+    if not gt_path.exists():
+        return {"steps": [], "edges": []}
+    return json.loads(gt_path.read_text(encoding="utf-8"))
+
+
+def validate_and_score_dag(extracted_dag: dict) -> tuple[dict, list]:
     """
-    Generate contextual mock response when running without an API key.
+    Validates extracted quotes against docs/manual.md pages.
+    Scores extracted DAG against dag/ground_truth.json.
+    """
+    pages = parse_manual_pages()
+    gt_dag = load_ground_truth_dag()
+
+    # 1. Quote validation
+    validation_results = []
+    for step in extracted_dag.get("steps", []):
+        src = step.get("source")
+        if isinstance(src, dict):
+            p = src.get("page")
+            q = src.get("quote", "").strip()
+            if p in pages and q and q in pages[p]:
+                validation_results.append({
+                    "step_id": step["id"],
+                    "valid": True,
+                    "quote": q,
+                    "status": "VERIFIED_VERBATIM"
+                })
+            else:
+                validation_results.append({
+                    "step_id": step["id"],
+                    "valid": False,
+                    "quote": q,
+                    "status": "REJECTED_NOT_ON_PAGE"
+                })
+                src["quote"] = "inferred"
+        else:
+            step["source"] = {"page": 0, "quote": "inferred"}
+            validation_results.append({
+                "step_id": step.get("id"),
+                "valid": False,
+                "quote": "",
+                "status": "MISSING_SOURCE"
+            })
+
+    # 2. Scoring against ground truth
+    gt_step_ids = set(s["id"] for s in gt_dag.get("steps", []))
+    ext_step_ids = set(s["id"] for s in extracted_dag.get("steps", []))
+    tp_steps = len(gt_step_ids & ext_step_ids)
+    step_recall = round(tp_steps / max(1, len(gt_step_ids)), 4)
+    step_precision = round(tp_steps / max(1, len(ext_step_ids)), 4)
+
+    gt_edges = set((e["from"], e["to"]) for e in gt_dag.get("edges", []))
+    ext_edges = set((e["from"], e["to"]) for e in extracted_dag.get("edges", []))
+    tp_edges = len(gt_edges & ext_edges)
+    edge_precision = round(tp_edges / max(1, len(ext_edges)), 4)
+    edge_recall = round(tp_edges / max(1, len(gt_edges)), 4)
+    unsupported_edges = len(ext_edges - gt_edges)
+
+    ext_step_map = {s["id"]: s for s in extracted_dag.get("steps", [])}
+    evidence_matches = 0
+    safety_matches = 0
+    common_steps = gt_step_ids & ext_step_ids
+    for s_id in common_steps:
+        gt_s = next(s for s in gt_dag["steps"] if s["id"] == s_id)
+        ext_s = ext_step_map[s_id]
+        if str(ext_s.get("evidence", "")).lower() == str(gt_s.get("evidence", "")).lower():
+            evidence_matches += 1
+        if bool(ext_s.get("safety", False)) == bool(gt_s.get("safety", False)):
+            safety_matches += 1
+
+    evidence_accuracy = round(evidence_matches / max(1, len(common_steps)), 4)
+    safety_accuracy = round(safety_matches / max(1, len(common_steps)), 4)
+
+    score = {
+        "step_precision": step_precision,
+        "step_recall": step_recall,
+        "edge_precision": edge_precision,
+        "edge_recall": edge_recall,
+        "evidence_accuracy": evidence_accuracy,
+        "safety_accuracy": safety_accuracy,
+        "unsupported_edges": unsupported_edges,
+        "total_gt_steps": len(gt_step_ids),
+        "total_extracted_steps": len(ext_step_ids),
+        "total_gt_edges": len(gt_edges),
+        "total_extracted_edges": len(ext_edges),
+    }
+
+    return score, validation_results
+
+
+@app.post("/extract_dag")
+async def extract_dag_endpoint():
+    """Extract DAG from docs/manual.md, validate quotes, and score against ground truth."""
+    gt_dag = load_ground_truth_dag()
+
+    if MOCK_MODE or genai_client is None:
+        # Mock mode requirement:
+        # Return ground truth with one missing edge and one wrong evidence type
+        mock_dag = json.loads(json.dumps(gt_dag))
+        # Drop edge 6 -> 8
+        mock_dag["edges"] = [e for e in mock_dag["edges"] if not (e["from"] == 6 and e["to"] == 8)]
+        # Change step 8 evidence from "sensor" to "visual"
+        for s in mock_dag["steps"]:
+            if s["id"] == 8:
+                s["evidence"] = "visual"
+
+        score, validation = validate_and_score_dag(mock_dag)
+        return {
+            "mode": "mock",
+            "dag": mock_dag,
+            "score": score,
+            "validation": validation,
+        }
+
+    # Live Gemini DAG Extraction
+    try:
+        from google.genai import types
+
+        manual_path = Path(__file__).resolve().parent.parent / "docs" / "manual.md"
+        manual_text = manual_path.read_text(encoding="utf-8")
+
+        prompt = (
+            "You are a technical document analyst. Extract the task dependency graph (DAG) "
+            "from the following installation manual into valid JSON following this exact schema:\n"
+            "{\n"
+            '  "task": "CPU Cooler Installation with Thermal Paste",\n'
+            '  "version": "1.0",\n'
+            '  "steps": [\n'
+            '    {\n'
+            '      "id": 1,\n'
+            '      "text": "Exact or concise step text",\n'
+            '      "depends_on": [],\n'
+            '      "evidence": "sensor" | "visual" | "confirm",\n'
+            '      "safety": true | false,\n'
+            '      "source": {"page": 1, "quote": "exact verbatim text from page"}\n'
+            '    }\n'
+            '  ],\n'
+            '  "edges": [{"from": 1, "to": 2}, ...]\n'
+            "}\n\n"
+            "Manual text:\n"
+            f"{manual_text}\n\n"
+            "Return ONLY raw JSON, with no code fences or markdown."
+        )
+
+        resp = await genai_client.aio.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[prompt],
+            config=types.GenerateContentConfig(temperature=0.1),
+        )
+
+        resp_text = resp.text.strip()
+        if resp_text.startswith("```"):
+            resp_text = re.sub(r"^```[a-zA-Z]*\n", "", resp_text)
+            resp_text = re.sub(r"\n```$", "", resp_text)
+
+        extracted_dag = json.loads(resp_text)
+        score, validation = validate_and_score_dag(extracted_dag)
+
+        return {
+            "mode": "live",
+            "dag": extracted_dag,
+            "score": score,
+            "validation": validation,
+        }
+    except Exception as exc:
+        print(f"[Backend] DAG extraction error: {exc}. Falling back to mock extraction.")
+        mock_dag = json.loads(json.dumps(gt_dag))
+        mock_dag["edges"] = [e for e in mock_dag["edges"] if not (e["from"] == 6 and e["to"] == 8)]
+        for s in mock_dag["steps"]:
+            if s["id"] == 8:
+                s["evidence"] = "visual"
+        score, validation = validate_and_score_dag(mock_dag)
+        return {
+            "mode": "fallback_mock",
+            "error": str(exc),
+            "dag": mock_dag,
+            "score": score,
+            "validation": validation,
+        }
+
+
+def generate_mock_stream_response(question: str, state: dict | None, step_id: int, verdict: dict | None):
+    """
+    Generate contextual mock response when running without an API key,
+    citing step, state, and safety rules.
     """
     q_lower = question.lower()
-    
-    if "wrong" in q_lower or "fault" in q_lower or "problem" in q_lower or "leak" in q_lower:
-        text = (
-            "Visual inspection alert: The analog pressure gauge indicates a high-pressure condition "
-            "with the needle entering the red zone (~8.5 bar). Additionally, there appears to be blue fluid "
-            "leaking from the secondary valve junction. Recommend isolating the inlet line and checking the seal."
+    step_num = step_id or 1
+
+    if "visual check" in q_lower:
+        # Perceptual agreement check against ground truth state
+        if state:
+            film_on = state.get("film_on", True)
+            cooler_seated = state.get("cooler") == "seated"
+            paste = state.get("paste", {})
+
+            if step_num == 4:
+                return (
+                    f"Visual Check [Step 4 - Peel Film]: "
+                    f"{'Plastic protective film is still attached to cooler base.' if film_on else 'Protective film is removed.'} "
+                    f"Camera angle provides clear line of sight to baseplate."
+                )
+            elif step_num == 5:
+                return (
+                    f"Visual Check [Step 5 - Thermal Paste]: "
+                    f"{'Thermal paste drop present on CPU center (size ~' + str(paste.get('size', 0)) + ').' if paste.get('present') else 'No thermal paste visible on CPU.'} "
+                    f"Surface clean condition confirmed."
+                )
+            elif step_num == 6:
+                return (
+                    f"Visual Check [Step 6 - Seat Cooler]: "
+                    f"Cooler status is {state.get('cooler', 'off')}. Screws aligned with mounting holes."
+                )
+
+        return f"Visual Check: Current frame visually matches expected state for Step {step_num}."
+
+    if "next" in q_lower:
+        if step_num == 1:
+            return (
+                "Next action: Switch off the power supply using the rocker switch at the back of the case "
+                "and unplug the power cable. Safety Warning: Never touch internal components while power is active."
+            )
+        elif step_num == 2:
+            return "Next action: Touch the bare metal chassis bar to discharge static electricity before handling the processor."
+        elif step_num == 3:
+            return "Next action: Wipe the processor surface thoroughly with isopropyl alcohol and a lint-free cloth."
+        elif step_num == 4:
+            return "Next action: Peel the protective plastic film off the copper base of the cooler."
+        elif step_num == 5:
+            return "Next action: Squeeze one pea-sized drop (size 0.3 to 0.6) of thermal paste directly onto the center of the CPU."
+        elif step_num == 6:
+            return "Next action: Lower the cooler straight down onto the processor, aligning all 4 corner screws. Do not slide it."
+        elif step_num == 7:
+            return "Next action: Tighten screws in diagonal order (1->2->3->4), giving each 2 turns at a time until all 4 are snug."
+        elif step_num == 8:
+            return "Next action: Plug the cooler fan cable firmly into the 4-pin CPU_FAN motherboard header."
+        elif step_num == 9:
+            return "Next action: Plug the power cable in and turn on the PSU switch."
+        elif step_num == 10:
+            return "Next action: Confirm fan rotation (>500 RPM) and ensure idle CPU temperature is below 60 C."
+
+    if "verdict" in q_lower and verdict:
+        v_type = verdict.get("verdict", "ok")
+        reason = verdict.get("reason", "All checks passed.")
+        return f"Rule Engine Verdict: [{v_type.upper()}]. Reason: {reason}"
+
+    if "safety" in q_lower:
+        return (
+            "Safety Protocol: Step 1 is a mandatory safety root: power must remain OFF and unplugged while working inside. "
+            "Touch the chassis to prevent electrostatic discharge (ESD) from damaging the processor."
         )
-    elif "gauge" in q_lower or "pressure" in q_lower:
-        text = (
-            "The circular analog pressure gauge is mounted on top of the pump discharge manifold. "
-            "Please check needle alignment against operating thresholds."
-        )
-    elif "valve" in q_lower or "wheel" in q_lower:
-        text = (
-            "The manual control valve with the red handwheel is positioned on the overhead discharge pipe. "
-            "Ensure the stem is properly lubricated."
-        )
-    elif "motor" in q_lower or "pump" in q_lower or "what do you see" in q_lower or "what is this" in q_lower:
-        text = (
-            f"I see an industrial centrifugal pump assembly mounted on a heavy metal skid. "
-            f"The electric motor cylinder drives the impeller volute through a central shaft coupling, "
-            f"connected to inlet and discharge piping with an analog pressure gauge. "
-            f"Based on {frame_count} live frames, the equipment is within camera view."
-        )
-    else:
-        text = (
-            f"Looking at the current camera feed ({frame_count} frames analyzed): "
-            f"The industrial pump unit is clearly visible. To assist you best, ask about the motor, "
-            f"valve assembly, pressure readings, or visual fault detection."
-        )
-    return text
+
+    # General descriptive answer
+    return (
+        f"Looking at Step {step_num} of the cooler installation: "
+        f"The rule engine confirms current state. Follow the diagonal screw sequence and observe the thermal paste pattern."
+    )
 
 
 @app.websocket("/ws/session")
 async def websocket_session(websocket: WebSocket):
     await websocket.accept()
-    # Rolling buffer of last 5 frames
     frame_buffer = deque(maxlen=5)
     print(f"[WS] Client connected. Buffer capacity: 5 frames.")
 
@@ -120,8 +360,10 @@ async def websocket_session(websocket: WebSocket):
             if msg_type == "frame":
                 t = msg.get("t", int(time.time() * 1000))
                 image_b64 = msg.get("image_b64", "")
-                
-                # Strip data url prefix if present
+                state = msg.get("state")
+                sensors = msg.get("sensors")
+                step_id = msg.get("step_id", 1)
+
                 if "," in image_b64:
                     image_b64 = image_b64.split(",", 1)[1]
 
@@ -132,12 +374,44 @@ async def websocket_session(websocket: WebSocket):
                         "t": t,
                         "time_str": dt_str,
                         "data": raw_bytes,
+                        "state": state,
+                        "sensors": sensors,
+                        "step_id": step_id,
                     })
                 except Exception as e:
                     print(f"[WS] Error decoding frame: {e}")
 
+            elif msg_type == "event":
+                # State event logged by client
+                t = msg.get("t")
+                action = msg.get("action")
+                part = msg.get("part")
+                verdict = msg.get("verdict")
+                print(f"[WS Event] {action} on {part} -> Verdict: {verdict.get('verdict') if isinstance(verdict, dict) else verdict}")
+
+            elif msg_type == "extract_dag":
+                # WebSocket request to extract DAG
+                gt_dag = load_ground_truth_dag()
+                mock_dag = json.loads(json.dumps(gt_dag))
+                mock_dag["edges"] = [e for e in mock_dag["edges"] if not (e["from"] == 6 and e["to"] == 8)]
+                for s in mock_dag["steps"]:
+                    if s["id"] == 8:
+                        s["evidence"] = "visual"
+                score, _ = validate_and_score_dag(mock_dag)
+                await websocket.send_text(json.dumps({
+                    "type": "dag",
+                    "dag": mock_dag,
+                    "score": score
+                }))
+
             elif msg_type == "question":
                 question_text = msg.get("text", "").strip()
+                state = msg.get("state")
+                sensors = msg.get("sensors")
+                events = msg.get("events", [])
+                step_id = msg.get("step_id", 1)
+                last_verdict = msg.get("last_verdict")
+
                 if not question_text:
                     await websocket.send_text(json.dumps({
                         "type": "error",
@@ -152,12 +426,10 @@ async def websocket_session(websocket: WebSocket):
 
                 # Case 1: MOCK_MODE or no Gemini client
                 if MOCK_MODE or genai_client is None:
-                    mock_answer = generate_mock_stream_response(question_text, frame_count)
-                    # Simulate realistic first token latency (150-250ms)
+                    mock_answer = generate_mock_stream_response(question_text, state, step_id, last_verdict)
                     await asyncio.sleep(0.18)
                     ttft_ms = int((time.perf_counter() - t_start) * 1000)
 
-                    # Split text into small word tokens
                     words = mock_answer.split(" ")
                     for i, word in enumerate(words):
                         chunk = word + (" " if i < len(words) - 1 else "")
@@ -174,12 +446,21 @@ async def websocket_session(websocket: WebSocket):
                         "latency_ms": total_latency_ms
                     }))
 
-                # Case 2: Live Gemini streaming
+                # Case 2: Live Gemini streaming with State + Events + Rule Verdict + Frames
                 else:
                     try:
                         from google.genai import types
 
                         contents = []
+                        # 1. State Snapshot
+                        state_summary = f"[Part State Snapshot]: {json.dumps(state) if state else 'None'}\n"
+                        state_summary += f"[Sensors]: {json.dumps(sensors) if sensors else 'None'}\n"
+                        state_summary += f"[Current DAG Step]: Step {step_id}\n"
+                        state_summary += f"[Rule Engine Last Verdict]: {json.dumps(last_verdict) if last_verdict else 'None'}\n"
+                        state_summary += f"[Last 10 Events]: {json.dumps(events[-10:]) if events else 'None'}\n"
+                        contents.append(state_summary)
+
+                        # 2. Buffered Images
                         if buffered_list:
                             for idx, f in enumerate(buffered_list):
                                 contents.append(
@@ -194,7 +475,8 @@ async def websocket_session(websocket: WebSocket):
                         else:
                             contents.append("[Note: No video frames received yet from headset feed]")
 
-                        contents.append(f"User question: {question_text}")
+                        # 3. User question
+                        contents.append(f"Technician question: {question_text}")
 
                         config = types.GenerateContentConfig(
                             system_instruction=SYSTEM_PROMPT,
@@ -235,7 +517,6 @@ async def websocket_session(websocket: WebSocket):
                         }))
 
             else:
-                # Unknown message type
                 pass
 
     except WebSocketDisconnect:

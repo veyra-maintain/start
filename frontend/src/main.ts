@@ -32,6 +32,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const ruleNextSteps = document.getElementById('rule-next-steps') as HTMLElement;
   const ruleReasonText = document.getElementById('rule-reason-text') as HTMLElement;
   const dagSourceSelect = document.getElementById('dag-source-select') as HTMLSelectElement;
+  const btnExtractDag = document.getElementById('btn-extract-dag') as HTMLButtonElement;
+  const btnShowDagScore = document.getElementById('btn-show-dag-score') as HTMLButtonElement;
+  const dagScoreSummary = document.getElementById('dag-score-summary') as HTMLElement;
 
   // Sensor UI
   const toggleSensorDropout = document.getElementById('toggle-sensor-dropout') as HTMLInputElement;
@@ -55,10 +58,147 @@ document.addEventListener('DOMContentLoaded', () => {
   const chipButtons = document.querySelectorAll<HTMLButtonElement>('.chip-btn');
   const btnVisualCheck = document.getElementById('btn-visual-check') as HTMLButtonElement;
 
+  let currentExtractedDag: DAGModel | null = null;
+  let currentDagScore: any = null;
+  let currentQuoteValidation: any[] = [];
+
   // State & Sensors & Rule Engine
   const stateManager = new CoolerStateManager();
   const sensorSim = new SensorSimulator();
   const ruleEngine = new RuleEngine(groundTruthDAG as DAGModel);
+
+  // DAG Selection & Extraction Handlers
+  dagSourceSelect.addEventListener('change', () => {
+    if (dagSourceSelect.value === 'ground_truth') {
+      ruleEngine.setDAG(groundTruthDAG as DAGModel);
+      dagScoreSummary.textContent = 'Ground-Truth DAG active (10 steps, 11 edges).';
+    } else if (dagSourceSelect.value === 'extracted' && currentExtractedDag) {
+      ruleEngine.setDAG(currentExtractedDag);
+      dagScoreSummary.textContent = 'Extracted DAG active in Rule Engine.';
+    }
+    updateRuleEngineHUD(null);
+  });
+
+  btnExtractDag.addEventListener('click', async () => {
+    btnExtractDag.disabled = true;
+    dagScoreSummary.textContent = 'Extracting DAG from manual with Gemini...';
+
+    try {
+      const res = await fetch(`${httpBackendUrl}/extract_dag`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        currentExtractedDag = data.dag;
+        currentDagScore = data.score;
+        currentQuoteValidation = data.validation || [];
+
+        // Enable extracted option in dropdown
+        const extractedOpt = dagSourceSelect.querySelector<HTMLOptionElement>('option[value="extracted"]');
+        if (extractedOpt) {
+          extractedOpt.disabled = false;
+          extractedOpt.textContent = `Extracted DAG (${data.mode === 'live' ? 'Live Gemini' : 'Mock'})`;
+        }
+
+        const s = data.score;
+        dagScoreSummary.textContent = `Step P/R: ${(s.step_precision * 100).toFixed(0)}%/${(s.step_recall * 100).toFixed(0)}% | Edge P/R: ${(s.edge_precision * 100).toFixed(0)}%/${(s.edge_recall * 100).toFixed(0)}% | Evid: ${(s.evidence_accuracy * 100).toFixed(0)}% | Safe: ${(s.safety_accuracy * 100).toFixed(0)}%`;
+
+        renderDagScoreModal(data.score, data.validation, data.mode);
+      } else {
+        dagScoreSummary.textContent = 'Extraction failed. Check backend.';
+      }
+    } catch (err) {
+      console.error('DAG extraction fetch error:', err);
+      dagScoreSummary.textContent = 'Error connecting to extraction endpoint.';
+    } finally {
+      btnExtractDag.disabled = false;
+    }
+  });
+
+  btnShowDagScore.addEventListener('click', () => {
+    if (currentDagScore) {
+      renderDagScoreModal(currentDagScore, currentQuoteValidation, 'cached');
+    } else {
+      // Show ground truth baseline info
+      modalTitle.textContent = 'Ground-Truth DAG Overview';
+      modalContent.innerHTML = `<p>Ground-Truth DAG loaded: 10 steps, 11 edges, 1 safety root.</p>
+        <p>Click <strong>"Extract DAG from Manual"</strong> to run extraction, quote validation, and benchmark scoring.</p>`;
+      modalContainer.style.display = 'flex';
+    }
+  });
+
+  function renderDagScoreModal(score: any, validation: any[], mode: string) {
+    modalTitle.textContent = `DAG Extraction Evaluation (${mode.toUpperCase()} Mode)`;
+    let html = `<h4>1. Accuracy Scorecard vs Ground Truth</h4>
+    <table class="modal-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>Score</th>
+          <th>Count / Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Step Precision</td>
+          <td><strong>${(score.step_precision * 100).toFixed(1)}%</strong></td>
+          <td>${score.total_extracted_steps} extracted steps</td>
+        </tr>
+        <tr>
+          <td>Step Recall</td>
+          <td><strong>${(score.step_recall * 100).toFixed(1)}%</strong></td>
+          <td>${score.total_gt_steps} ground-truth steps</td>
+        </tr>
+        <tr>
+          <td>Edge Precision</td>
+          <td><strong>${(score.edge_precision * 100).toFixed(1)}%</strong></td>
+          <td>${score.total_extracted_edges} extracted edges</td>
+        </tr>
+        <tr>
+          <td>Edge Recall</td>
+          <td><strong>${(score.edge_recall * 100).toFixed(1)}%</strong></td>
+          <td>${score.total_gt_edges} ground-truth edges</td>
+        </tr>
+        <tr>
+          <td>Evidence-Type Accuracy</td>
+          <td><strong>${(score.evidence_accuracy * 100).toFixed(1)}%</strong></td>
+          <td>sensor / visual / confirm classification</td>
+        </tr>
+        <tr>
+          <td>Safety-Flag Accuracy</td>
+          <td><strong>${(score.safety_accuracy * 100).toFixed(1)}%</strong></td>
+          <td>Step safety designation</td>
+        </tr>
+        <tr>
+          <td>Unsupported Edges</td>
+          <td><strong>${score.unsupported_edges}</strong></td>
+          <td>Spurious edges not in ground truth</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h4 style="margin-top: 14px;">2. Verbatim Quote Auto-Validation against Manual Pages</h4>
+    <table class="modal-table">
+      <thead>
+        <tr>
+          <th>Step</th>
+          <th>Status</th>
+          <th>Verified Verbatim Quote</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+    for (const v of validation) {
+      const statusClass = v.valid ? 'status-pass' : 'status-fail';
+      html += `<tr>
+        <td>Step ${v.step_id}</td>
+        <td class="${statusClass}">${v.status}</td>
+        <td style="font-size: 0.72rem;"><em>"${escapeHtml(v.quote || '(none)')}"</em></td>
+      </tr>`;
+    }
+
+    html += `</tbody></table>`;
+    modalContent.innerHTML = html;
+    modalContainer.style.display = 'flex';
+  }
 
   function updateRuleEngineHUD(verdict?: RuleVerdict | null) {
     const currentStepId = ruleEngine.getCurrentStep();
