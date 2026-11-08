@@ -89,13 +89,15 @@ export class ARWebSocketClient {
   }
 
   public sendQuestion(text: string): boolean {
+    return this.sendRaw({
+      type: 'question',
+      text,
+    });
+  }
+
+  public sendRaw(message: any): boolean {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(
-        JSON.stringify({
-          type: 'question',
-          text,
-        })
-      );
+      this.ws.send(JSON.stringify(message));
       return true;
     }
     return false;

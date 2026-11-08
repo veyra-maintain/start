@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Virtual AR Glasses - Industrial Maintenance</title>
+  <title>Virtual AR Glasses - Cooler & Pump Maintenance</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
@@ -17,8 +17,18 @@
       <header class="hud-top-bar">
         <div class="hud-brand">
           <span class="hud-icon">🥽</span>
-          <span class="hud-title">VIRTUAL AR GLASSES <span class="badge">SYS v2.4</span></span>
+          <span class="hud-title">VIRTUAL AR GLASSES <span class="badge">SYS v3.0</span></span>
         </div>
+
+        <!-- Scene Switcher -->
+        <div class="hud-scene-switcher">
+          <label for="scene-select">SCENE:</label>
+          <select id="scene-select" class="hud-select">
+            <option value="cooler" selected>CPU Cooler Install (DAG & Rule Engine)</option>
+            <option value="pump">Industrial Pump (Baseline)</option>
+          </select>
+        </div>
+
         <div class="hud-status-group">
           <div id="ws-indicator" class="hud-status connecting">
             <span class="pulse-dot"></span>
@@ -40,7 +50,7 @@
           <div class="reticle-bracket bottom-left"></div>
           <div class="reticle-bracket bottom-right"></div>
         </div>
-        <div class="hud-coords" id="camera-coords">CAM: [X: 0.0, Y: 1.6, Z: 3.5]</div>
+        <div class="hud-coords" id="camera-coords">CAM: [X: 0.0, Y: 1.5, Z: 1.4]</div>
       </div>
 
       <!-- Pointer Lock Overlay Prompt -->
@@ -48,33 +58,140 @@
         <div class="hint-card">
           <div class="hint-icon">🎯</div>
           <h3>Click Viewport to Enable AR Look</h3>
-          <p><strong>WASD / Arrow Keys:</strong> Walk around pump</p>
+          <p><strong>WASD / Arrow Keys:</strong> Walk / move</p>
           <p><strong>Mouse:</strong> Look around (Pitch / Yaw)</p>
-          <p><strong>ESC:</strong> Release cursor</p>
+          <p><strong>Left Click:</strong> Raycast click on 3D components</p>
+          <p><strong>Key E:</strong> Touch ESD ground bar</p>
+          <p><strong>ESC:</strong> Release cursor for HUD interaction</p>
         </div>
       </div>
 
-      <!-- Top-Right: Frame Streaming Monitor -->
-      <aside class="hud-stream-monitor">
-        <div class="monitor-header">
-          <span class="pulse-dot active"></span>
-          <span>GEMINI VISION STREAM (1 Hz)</span>
-        </div>
-        <div class="monitor-preview">
-          <img id="stream-thumbnail" alt="Camera feed preview sent to Gemini" />
-          <div class="monitor-overlay-tags">
-            <span id="frame-fps">1.0 FPS</span>
-            <span id="frame-res">512×512 JPEG</span>
+      <!-- Top-Right: Frame Streaming Monitor & Sensors -->
+      <aside class="hud-right-stack">
+        <!-- Frame Stream Monitor -->
+        <div class="hud-stream-monitor">
+          <div class="monitor-header">
+            <span class="pulse-dot active"></span>
+            <span>GEMINI VISION STREAM (1 Hz)</span>
+          </div>
+          <div class="monitor-preview">
+            <img id="stream-thumbnail" alt="Camera feed preview sent to Gemini" />
+            <div class="monitor-overlay-tags">
+              <span id="frame-fps">1.0 FPS</span>
+              <span id="frame-res">512×512 JPEG</span>
+            </div>
+          </div>
+          <div class="monitor-footer">
+            <span id="frame-counter">Buffered: 0 frames</span>
+            <span id="frame-timestamp">--:--:--</span>
           </div>
         </div>
-        <div class="monitor-footer">
-          <span id="frame-counter">Buffered: 0 frames</span>
-          <span id="frame-timestamp">--:--:--</span>
+
+        <!-- Simulated Sensor Telemetry (Cooler Scene) -->
+        <div id="hud-sensors-panel" class="hud-panel-box">
+          <div class="panel-box-title">
+            <span>⚡ SENSORS TELEMETRY</span>
+            <div class="sensor-toggles">
+              <label class="mini-toggle" title="Simulate sensor dropout (missing/stale readings)">
+                <input type="checkbox" id="toggle-sensor-dropout" />
+                <span>Dropout</span>
+              </label>
+              <label class="mini-toggle" title="Add sensor noise">
+                <input type="checkbox" id="toggle-sensor-noise" />
+                <span>Noise</span>
+              </label>
+            </div>
+          </div>
+          <div class="sensor-grid">
+            <div class="sensor-cell">
+              <span class="sensor-label">PSU:</span>
+              <strong id="sensor-psu" class="val-on">ON</strong>
+            </div>
+            <div class="sensor-cell">
+              <span class="sensor-label">Fan Conn:</span>
+              <strong id="sensor-fan-conn" class="val-off">NO</strong>
+            </div>
+            <div class="sensor-cell">
+              <span class="sensor-label">Fan RPM:</span>
+              <strong id="sensor-rpm">0 RPM</strong>
+            </div>
+            <div class="sensor-cell">
+              <span class="sensor-label">CPU Temp:</span>
+              <strong id="sensor-temp">35.0 °C</strong>
+            </div>
+          </div>
         </div>
       </aside>
 
-      <!-- Stretch Feature: Fault Toggle Widget -->
-      <div class="hud-fault-control">
+      <!-- Top-Left: Rule Engine Verdict & DAG Status (Cooler Scene) -->
+      <aside id="hud-rule-engine-panel" class="hud-left-stack">
+        <div class="hud-panel-box verdict-box">
+          <div class="panel-box-title">
+            <span>🛡️ RULE ENGINE VERDICT</span>
+            <span id="rule-verdict-pill" class="verdict-pill verdict-ok">READY</span>
+          </div>
+          <div class="verdict-details">
+            <div class="verdict-row">
+              <span class="v-label">Current Step:</span>
+              <strong id="rule-current-step">Step 1: Switch off PSU & unplug cable</strong>
+            </div>
+            <div class="verdict-row">
+              <span class="v-label">Next Allowed:</span>
+              <span id="rule-next-steps" class="allowed-tag">Step 1</span>
+            </div>
+            <div class="verdict-row">
+              <span class="v-label">Reason:</span>
+              <span id="rule-reason-text" class="reason-text">Awaiting first action...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- DAG Selection & Extraction -->
+        <div class="hud-panel-box dag-box">
+          <div class="panel-box-title">
+            <span>📊 DAG MODEL</span>
+            <select id="dag-source-select" class="hud-select-mini">
+              <option value="ground_truth">Ground-Truth DAG</option>
+              <option value="extracted" disabled>Extracted DAG (Run first)</option>
+            </select>
+          </div>
+          <div class="dag-actions-row">
+            <button id="btn-extract-dag" class="hud-action-btn">Extract DAG from Manual</button>
+            <button id="btn-show-dag-score" class="hud-action-btn secondary">DAG Scores</button>
+          </div>
+          <div id="dag-score-summary" class="dag-summary-text">
+            DAG: 10 steps, 11 edges. Ready.
+          </div>
+        </div>
+
+        <!-- Scripted Technician Benchmark Runner -->
+        <div class="hud-panel-box benchmark-box">
+          <div class="panel-box-title">
+            <span>🧪 SCRIPTED TECHNICIAN</span>
+            <span id="benchmark-status" class="benchmark-pill">9 Scenarios</span>
+          </div>
+          <div class="benchmark-actions-row">
+            <select id="scenario-select" class="hud-select-mini">
+              <option value="all">Run All 9 Scenarios</option>
+              <option value="valid_flexible_order">1. valid_flexible_order</option>
+              <option value="power_on_install">2. power_on_install</option>
+              <option value="film_left_on">3. film_left_on</option>
+              <option value="too_much_paste">4. too_much_paste</option>
+              <option value="no_paste">5. no_paste</option>
+              <option value="screw_one_full">6. screw_one_full</option>
+              <option value="skipped_fan">7. skipped_fan</option>
+              <option value="paste_before_clean">8. paste_before_clean</option>
+              <option value="sensor_dropout_at_step_1">9. sensor_dropout_at_step_1</option>
+            </select>
+            <button id="btn-run-scenario" class="hud-action-btn run-btn">Run</button>
+            <button id="btn-download-results" class="hud-action-btn secondary" disabled>JSON</button>
+          </div>
+          <div id="scenario-result-pill" class="scenario-result-text">Ready to run benchmark</div>
+        </div>
+      </aside>
+
+      <!-- Stretch Feature: Pump Fault Control (visible only when in pump scene) -->
+      <div id="hud-pump-fault-control" class="hud-fault-control" style="display: none;">
         <label class="fault-switch-label" title="Simulate pressure anomaly and blue fluid leak">
           <input type="checkbox" id="toggle-fault" />
           <span class="toggle-slider"></span>
@@ -82,25 +199,40 @@
         </label>
       </div>
 
+      <!-- Bottom: Quick Action Toolbelt for Cooler Scene -->
+      <div id="hud-cooler-toolbelt" class="hud-cooler-toolbelt">
+        <button class="tool-btn" data-action="toggle_psu">Switch PSU</button>
+        <button class="tool-btn" data-action="toggle_power_cable">Power Cable</button>
+        <button class="tool-btn" data-action="discharge_esd">Discharge ESD (E)</button>
+        <button class="tool-btn" data-action="wipe_cpu">Wipe CPU (IPA)</button>
+        <button class="tool-btn" data-action="peel_film">Peel Film</button>
+        <button class="tool-btn" data-action="apply_paste_pea">Pea Paste (0.45)</button>
+        <button class="tool-btn" data-action="seat_cooler">Seat Cooler</button>
+        <button class="tool-btn" data-action="tighten_diagonal">Diagonal Screws (1->2->3->4)</button>
+        <button class="tool-btn" data-action="connect_fan">Plug Fan</button>
+        <button class="tool-btn danger" data-action="reset_cooler">Reset Part State</button>
+      </div>
+
       <!-- Bottom: Gemini AR Maintenance Assistant Panel -->
       <section class="hud-assistant-panel">
         <div class="panel-header">
           <div class="panel-title">
             <span class="assistant-avatar">✨</span>
-            <span class="panel-heading">GEMINI VISION COPILOT</span>
+            <span class="panel-heading">GEMINI VISION & RULE COPILOT</span>
             <span class="model-tag" id="active-model-tag">Gemini Flash</span>
           </div>
           <div class="quick-chips">
-            <button class="chip-btn" data-query="What do you see?">What do you see?</button>
-            <button class="chip-btn" data-query="Is anything wrong with this pump?">Is anything wrong?</button>
-            <button class="chip-btn" data-query="Check the pressure gauge reading.">Inspect gauge</button>
-            <button class="chip-btn" data-query="What is the valve status?">Check valve</button>
+            <button class="chip-btn" data-query="What do I do next?">What do I do next?</button>
+            <button class="chip-btn" data-query="Explain the rule engine's last verdict.">Explain verdict</button>
+            <button class="chip-btn" data-query="What are the safety warnings for this step?">Safety check</button>
+            <button class="chip-btn" data-query="What do you see in the camera feed?">Describe feed</button>
+            <button id="btn-visual-check" class="chip-btn visual-check-btn" title="Verify visual state expected for current step against live camera angle">📷 Visual check</button>
           </div>
         </div>
 
         <div class="panel-body">
           <div id="answer-stream" class="answer-box">
-            <span class="placeholder-text">Awaiting question. Walk around the pump, aim the glasses, and submit a query...</span>
+            <span class="placeholder-text">Awaiting question. Walk around, interact with components, and query the assistant...</span>
           </div>
         </div>
 
@@ -108,6 +240,8 @@
           <span class="metric-item">TTFT: <strong id="metric-ttft">-- ms</strong></span>
           <span class="metric-divider">|</span>
           <span class="metric-item">Total Latency: <strong id="metric-latency">-- ms</strong></span>
+          <span class="metric-divider">|</span>
+          <span class="metric-item">Perception Check: <strong id="metric-visual-check">--</strong></span>
           <span class="metric-divider">|</span>
           <span class="metric-item">Status: <span id="metric-status">Ready</span></span>
         </div>
@@ -117,7 +251,7 @@
             type="text"
             id="query-input"
             class="query-input"
-            placeholder="Ask Gemini about the pump in front of you..."
+            placeholder="Ask Gemini about the installation step or what you see..."
             autocomplete="off"
           />
           <button type="submit" id="send-btn" class="send-btn">
@@ -129,6 +263,19 @@
           </button>
         </form>
       </section>
+    </div>
+  </div>
+
+  <!-- Score & Scenario Result Modal Dialog -->
+  <div id="modal-container" class="hud-modal-overlay" style="display: none;">
+    <div class="hud-modal-card">
+      <div class="modal-header">
+        <h3 id="modal-title">DAG Evaluation & Validation Scores</h3>
+        <button id="modal-close-btn" class="modal-close">&times;</button>
+      </div>
+      <div id="modal-content" class="modal-body">
+        <!-- Rendered dynamically -->
+      </div>
     </div>
   </div>
 
