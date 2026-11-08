@@ -1,0 +1,14 @@
+{
+  "id": "sensor_dropout_at_step_1",
+  "name": "9. Sensor Dropout at Step 1",
+  "description": "Sensors experience telemetry dropout during Step 1; rule engine returns uncertain (never error).",
+  "steps": [
+    {
+      "step_id": 1,
+      "action": "toggle_psu",
+      "expected_verdict": "uncertain",
+      "dropout": true,
+      "state_setup": { "psu": "off", "power_cable_plugged": false }
+    }
+  ]
+}

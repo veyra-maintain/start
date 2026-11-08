@@ -131,7 +131,100 @@ document.addEventListener('DOMContentLoaded', () => {
     loadScene(sceneSelect.value as 'cooler' | 'pump');
   });
 
-  // Sensor Toggles
+  // Benchmark UI Elements
+  const scenarioSelect = document.getElementById('scenario-select') as HTMLSelectElement;
+  const btnRunScenario = document.getElementById('btn-run-scenario') as HTMLButtonElement;
+  const btnDownloadResults = document.getElementById('btn-download-results') as HTMLButtonElement;
+  const scenarioResultPill = document.getElementById('scenario-result-pill') as HTMLElement;
+  const benchmarkStatus = document.getElementById('benchmark-status') as HTMLElement;
+
+  // Modal UI
+  const modalContainer = document.getElementById('modal-container') as HTMLElement;
+  const modalTitle = document.getElementById('modal-title') as HTMLElement;
+  const modalContent = document.getElementById('modal-content') as HTMLElement;
+  const modalCloseBtn = document.getElementById('modal-close-btn') as HTMLElement;
+
+  modalCloseBtn.addEventListener('click', () => {
+    modalContainer.style.display = 'none';
+  });
+
+  let latestBenchmarkResults: any[] = [];
+
+  btnRunScenario.addEventListener('click', async () => {
+    btnRunScenario.disabled = true;
+    const selectedVal = scenarioSelect.value;
+    scenarioResultPill.textContent = 'Running scenario benchmark...';
+
+    const { runScenario, runAllScenarios, ALL_SCENARIOS, downloadResultsJSON } = await import('./scripted_technician');
+
+    if (selectedVal === 'all') {
+      const results = await runAllScenarios(ruleEngine, stateManager, sensorSim, coolerManager, (idx, total, res) => {
+        scenarioResultPill.textContent = `Scenario [${idx}/${total}]: ${res.name} -> ${res.passed ? 'PASS' : 'FAIL'}`;
+      });
+      latestBenchmarkResults = results;
+      const passedCount = results.filter((r) => r.passed).length;
+      scenarioResultPill.textContent = `Completed: ${passedCount}/${results.length} PASSED`;
+      benchmarkStatus.textContent = `${passedCount}/${results.length} Pass`;
+      benchmarkStatus.style.color = passedCount === results.length ? '#00ff88' : '#ff3344';
+      btnDownloadResults.disabled = false;
+      renderBenchmarkModal(results);
+    } else {
+      const targetSc = ALL_SCENARIOS.find((s) => s.id === selectedVal);
+      if (targetSc) {
+        const res = await runScenario(targetSc, ruleEngine, stateManager, sensorSim, coolerManager, 220);
+        latestBenchmarkResults = [res];
+        scenarioResultPill.textContent = `${res.name} -> ${res.passed ? 'PASS' : 'FAIL'}`;
+        btnDownloadResults.disabled = false;
+        renderBenchmarkModal([res]);
+      }
+    }
+
+    btnRunScenario.disabled = false;
+    updateRuleEngineHUD(ruleEngine.getLastVerdict());
+  });
+
+  btnDownloadResults.addEventListener('click', async () => {
+    if (latestBenchmarkResults.length > 0) {
+      const { downloadResultsJSON } = await import('./scripted_technician');
+      downloadResultsJSON(latestBenchmarkResults);
+    }
+  });
+
+  function renderBenchmarkModal(results: any[]) {
+    modalTitle.textContent = 'Scripted Technician Benchmark Results';
+    let html = `<table class="modal-table">
+      <thead>
+        <tr>
+          <th>Scenario</th>
+          <th>Status</th>
+          <th>Steps Evaluated</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+    for (const r of results) {
+      const statusClass = r.passed ? 'status-pass' : 'status-fail';
+      const statusText = r.passed ? 'PASS' : 'FAIL';
+      const stepDetails = r.steps
+        .map(
+          (s: any) =>
+            `<div>Step ${s.step_id} [${s.action}]: <strong>${s.actual_verdict}</strong> (Expected: ${s.expected_verdict}) - <em>${escapeHtml(s.reason)}</em></div>`
+        )
+        .join('');
+
+      html += `<tr>
+        <td><strong>${escapeHtml(r.name)}</strong></td>
+        <td class="${statusClass}">${statusText}</td>
+        <td>${r.steps.length} action(s)</td>
+        <td style="font-size: 0.72rem;">${stepDetails}</td>
+      </tr>`;
+    }
+
+    html += `</tbody></table>`;
+    modalContent.innerHTML = html;
+    modalContainer.style.display = 'flex';
+  }
   toggleSensorDropout.addEventListener('change', () => {
     sensorSim.setDropout(toggleSensorDropout.checked);
   });

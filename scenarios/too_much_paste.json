@@ -1,0 +1,32 @@
+{
+  "id": "too_much_paste",
+  "name": "4. Too Much Thermal Paste (Size 0.9)",
+  "description": "Technician dispenses excessive thermal paste (0.9 > 0.6 pea-sized limit), risking overflow.",
+  "steps": [
+    {
+      "step_id": 1,
+      "action": "toggle_psu",
+      "expected_verdict": "ok",
+      "state_setup": { "psu": "off", "power_cable_plugged": false }
+    },
+    {
+      "step_id": 2,
+      "action": "discharge_esd",
+      "expected_verdict": "ok",
+      "state_setup": { "esd_discharged": true }
+    },
+    {
+      "step_id": 3,
+      "action": "wipe_cpu",
+      "expected_verdict": "ok",
+      "state_setup": { "cpu_clean": true }
+    },
+    {
+      "step_id": 5,
+      "action": "apply_paste",
+      "payload": { "size": 0.9, "offset": 0.05 },
+      "expected_verdict": "out_of_order",
+      "state_setup": { "paste": { "present": true, "size": 0.9, "offset_from_center": 0.05 } }
+    }
+  ]
+}

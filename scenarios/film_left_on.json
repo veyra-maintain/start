@@ -1,0 +1,38 @@
+{
+  "id": "film_left_on",
+  "name": "3. Protective Film Left On",
+  "description": "Technician lowers cooler straight onto CPU while the protective plastic film is still attached to the cooler base.",
+  "steps": [
+    {
+      "step_id": 1,
+      "action": "toggle_psu",
+      "expected_verdict": "ok",
+      "state_setup": { "psu": "off", "power_cable_plugged": false }
+    },
+    {
+      "step_id": 2,
+      "action": "discharge_esd",
+      "expected_verdict": "ok",
+      "state_setup": { "esd_discharged": true }
+    },
+    {
+      "step_id": 3,
+      "action": "wipe_cpu",
+      "expected_verdict": "ok",
+      "state_setup": { "cpu_clean": true }
+    },
+    {
+      "step_id": 5,
+      "action": "apply_paste",
+      "payload": { "size": 0.45, "offset": 0.05 },
+      "expected_verdict": "ok",
+      "state_setup": { "paste": { "present": true, "size": 0.45, "offset_from_center": 0.05 } }
+    },
+    {
+      "step_id": 6,
+      "action": "seat_cooler",
+      "expected_verdict": "out_of_order",
+      "state_setup": { "film_on": true }
+    }
+  ]
+}

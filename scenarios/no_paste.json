@@ -1,0 +1,37 @@
+{
+  "id": "no_paste",
+  "name": "5. Lower Cooler Without Paste",
+  "description": "Technician attempts to seat the cooler without applying thermal paste.",
+  "steps": [
+    {
+      "step_id": 1,
+      "action": "toggle_psu",
+      "expected_verdict": "ok",
+      "state_setup": { "psu": "off", "power_cable_plugged": false }
+    },
+    {
+      "step_id": 2,
+      "action": "discharge_esd",
+      "expected_verdict": "ok",
+      "state_setup": { "esd_discharged": true }
+    },
+    {
+      "step_id": 3,
+      "action": "wipe_cpu",
+      "expected_verdict": "ok",
+      "state_setup": { "cpu_clean": true }
+    },
+    {
+      "step_id": 4,
+      "action": "peel_film",
+      "expected_verdict": "ok",
+      "state_setup": { "film_on": false }
+    },
+    {
+      "step_id": 6,
+      "action": "seat_cooler",
+      "expected_verdict": "out_of_order",
+      "state_setup": { "paste": { "present": false, "size": 0.0, "offset_from_center": 0.0 } }
+    }
+  ]
+}

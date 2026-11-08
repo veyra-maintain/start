@@ -1,0 +1,13 @@
+{
+  "id": "power_on_install",
+  "name": "2. Power On Install",
+  "description": "Technician attempts to touch or wipe CPU while power supply is active.",
+  "steps": [
+    {
+      "step_id": 1,
+      "action": "wipe_cpu",
+      "expected_verdict": "unsafe",
+      "state_setup": { "psu": "on", "power_cable_plugged": true }
+    }
+  ]
+}

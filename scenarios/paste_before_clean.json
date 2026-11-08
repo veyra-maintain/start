@@ -1,0 +1,26 @@
+{
+  "id": "paste_before_clean",
+  "name": "8. Paste Applied Before Cleaning CPU",
+  "description": "Technician attempts to dispense paste (Step 5) before cleaning the CPU with alcohol wipe (Step 3).",
+  "steps": [
+    {
+      "step_id": 1,
+      "action": "toggle_psu",
+      "expected_verdict": "ok",
+      "state_setup": { "psu": "off", "power_cable_plugged": false }
+    },
+    {
+      "step_id": 2,
+      "action": "discharge_esd",
+      "expected_verdict": "ok",
+      "state_setup": { "esd_discharged": true }
+    },
+    {
+      "step_id": 5,
+      "action": "apply_paste",
+      "payload": { "size": 0.45, "offset": 0.05 },
+      "expected_verdict": "out_of_order",
+      "state_setup": { "cpu_clean": false }
+    }
+  ]
+}

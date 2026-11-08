@@ -96,8 +96,8 @@ export class RuleEngine {
     const now = Date.now();
     const isPsuPowered = state.psu === 'on' && state.power_cable_plugged;
 
-    // Rule 1: Touching any component while PSU is on is strictly UNSAFE (except switching off in Step 1)
-    if (isPsuPowered && action !== 'toggle_psu' && action !== 'toggle_power_cable') {
+    // Rule 1: Touching any component while PSU is on is strictly UNSAFE (except switching off in Step 1 or reading sensors in Step 10)
+    if (isPsuPowered && action !== 'toggle_psu' && action !== 'toggle_power_cable' && action !== 'verify_sensors') {
       const v: RuleVerdict = {
         verdict: 'unsafe',
         step_id: 1,
