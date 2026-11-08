@@ -88,19 +88,29 @@ export function initCoolerScene(
   const psuMat = new THREE.MeshStandardMaterial({ color: 0x22262d, metalness: 0.7, roughness: 0.4 });
   const psuBody = new THREE.Mesh(psuBodyGeo, psuMat);
   psuBody.castShadow = true;
+  psuBody.name = 'part_psu';
   psuGroup.add(psuBody);
 
-  // Rocker switch on PSU front
-  const switchBase = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.04), new THREE.MeshBasicMaterial({ color: 0x111111 }));
+  // Rocker switch on PSU front (prominent, responsive to clicks)
+  const switchBase = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.05), new THREE.MeshBasicMaterial({ color: 0x111111 }));
   switchBase.position.set(0, 0.05, 0.26);
+  switchBase.name = 'part_psu_switch';
   psuGroup.add(switchBase);
 
-  const rockerGeo = new THREE.BoxGeometry(0.06, 0.08, 0.02);
-  const rockerMat = new THREE.MeshStandardMaterial({ color: 0xdd2222 });
+  const rockerGeo = new THREE.BoxGeometry(0.09, 0.12, 0.03);
+  const rockerMat = new THREE.MeshStandardMaterial({ color: 0x22cc44 });
   const rockerSwitch = new THREE.Mesh(rockerGeo, rockerMat);
   rockerSwitch.position.set(0, 0.05, 0.28);
   rockerSwitch.name = 'part_psu_switch';
   psuGroup.add(rockerSwitch);
+
+  // Power LED on PSU
+  const psuLedGeo = new THREE.SphereGeometry(0.018, 12, 12);
+  const psuLedMat = new THREE.MeshStandardMaterial({ color: 0x22cc44, emissive: 0x22cc44, emissiveIntensity: 0.9 });
+  const psuLed = new THREE.Mesh(psuLedGeo, psuLedMat);
+  psuLed.position.set(0, 0.16, 0.26);
+  psuLed.name = 'part_psu';
+  psuGroup.add(psuLed);
 
   const psuSwitchLabel = createLabelSprite('PSU SWITCH: ON', '#ff4444');
   psuSwitchLabel.position.set(0, 0.22, 0.28);
@@ -407,17 +417,24 @@ export function initCoolerScene(
   let pasteHoldInterval: number | null = null;
   let activeTool: 'none' | 'wipe' | 'paste' | 'cooler' = 'none';
 
-  function getRaycastIntersect(e: MouseEvent): THREE.Intersection | null {
-    const rect = renderer.domElement.getBoundingClientRect();
-    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
+  function getRaycastIntersect(e?: MouseEvent): THREE.Intersection | null {
+    const rayVec = new THREE.Vector2();
+    if (isPointerLocked) {
+      // In pointer lock, the technician aims through the center reticle crosshair (0, 0)
+      rayVec.set(0, 0);
+    } else if (e) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      rayVec.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      rayVec.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    } else {
+      rayVec.copy(mouse);
+    }
+    raycaster.setFromCamera(rayVec, camera);
     const intersects = raycaster.intersectObjects(scene.children, true);
     return intersects.length > 0 ? intersects[0] : null;
   }
 
   function onPointerDown(e: MouseEvent) {
-    // If not locked and clicked, request pointer lock unless clicking specific interactive parts
     const hit = getRaycastIntersect(e);
     if (!hit) return;
 
@@ -434,7 +451,8 @@ export function initCoolerScene(
     if (!partName) return;
 
     // Handle Raycast Actions
-    if (partName === 'part_psu_switch') {
+    // Clicking anywhere on the PSU unit or rocker switch toggles the PSU
+    if (partName === 'part_psu_switch' || partName === 'part_psu') {
       handleAction('toggle_psu');
     } else if (partName === 'part_power_cable') {
       handleAction('toggle_power_cable');
@@ -614,10 +632,12 @@ export function initCoolerScene(
 
   // Visual Synchronizer
   function updateVisualsFromState(st: CoolerState) {
-    // 1. PSU Switch
+    // 1. PSU Switch & LED
     const isPsuOn = st.psu === 'on';
-    rockerSwitch.rotation.x = isPsuOn ? -0.2 : 0.2;
+    rockerSwitch.rotation.x = isPsuOn ? -0.25 : 0.25;
     (rockerSwitch.material as THREE.MeshStandardMaterial).color.setHex(isPsuOn ? 0x22cc44 : 0xdd2222);
+    (psuLed.material as THREE.MeshStandardMaterial).color.setHex(isPsuOn ? 0x22cc44 : 0x222222);
+    (psuLed.material as THREE.MeshStandardMaterial).emissive.setHex(isPsuOn ? 0x22cc44 : 0x000000);
     psuSwitchLabel.material.map = createTextTexture(`PSU SWITCH: ${st.psu.toUpperCase()}`, isPsuOn ? '#22cc44' : '#ff4444');
 
     // 2. Power Cable
@@ -773,6 +793,7 @@ export function initCoolerScene(
       if (hoveredPart) {
         let text = '';
         switch (hoveredPart) {
+          case 'part_psu':
           case 'part_psu_switch':
             text = `PSU Switch [${st.psu.toUpperCase()}] - Click to toggle`;
             break;
