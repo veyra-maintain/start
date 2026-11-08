@@ -1,0 +1,215 @@
+{
+  "task": "CPU Cooler Installation with Thermal Paste",
+  "version": "1.0",
+  "steps": [
+    {
+      "id": 1,
+      "text": "Switch off the power supply with the rocker switch at the back of the case and unplug the power cable.",
+      "depends_on": [],
+      "evidence": "sensor",
+      "safety": true,
+      "preconditions": {
+        "psu": "any",
+        "power_cable_plugged": "any"
+      },
+      "effects": {
+        "psu": "off",
+        "power_cable_plugged": false
+      },
+      "source": {
+        "page": 1,
+        "quote": "Switch off the power supply with the rocker switch at the back of the case and unplug the power cable."
+      }
+    },
+    {
+      "id": 2,
+      "text": "Touch the bare metal of the case to discharge static electricity.",
+      "depends_on": [1],
+      "evidence": "confirm",
+      "safety": true,
+      "preconditions": {
+        "psu": "off"
+      },
+      "effects": {
+        "esd_discharged": true
+      },
+      "source": {
+        "page": 1,
+        "quote": "Touch the bare metal of the case to discharge static electricity."
+      }
+    },
+    {
+      "id": 3,
+      "text": "Wipe the processor surface with isopropyl alcohol and a lint-free cloth.",
+      "depends_on": [2],
+      "evidence": "visual",
+      "safety": false,
+      "preconditions": {
+        "esd_discharged": true,
+        "psu": "off"
+      },
+      "effects": {
+        "cpu_clean": true
+      },
+      "source": {
+        "page": 1,
+        "quote": "Wipe the processor surface with isopropyl alcohol and a lint-free cloth."
+      }
+    },
+    {
+      "id": 4,
+      "text": "Peel the protective plastic film off the base of the cooler.",
+      "depends_on": [2],
+      "evidence": "visual",
+      "safety": false,
+      "preconditions": {
+        "esd_discharged": true,
+        "psu": "off"
+      },
+      "effects": {
+        "film_on": false
+      },
+      "source": {
+        "page": 2,
+        "quote": "Peel the protective plastic film off the base of the cooler."
+      }
+    },
+    {
+      "id": 5,
+      "text": "Squeeze one pea-sized drop of thermal paste onto the centre of the processor. Do not spread it; the cooler's pressure will do that.",
+      "depends_on": [3],
+      "evidence": "visual",
+      "safety": false,
+      "preconditions": {
+        "cpu_clean": true,
+        "psu": "off"
+      },
+      "constraints": {
+        "min_size": 0.3,
+        "max_size": 0.6,
+        "max_offset": 0.2
+      },
+      "effects": {
+        "paste_present": true
+      },
+      "source": {
+        "page": 2,
+        "quote": "Squeeze one pea-sized drop of thermal paste onto the centre of the processor. Do not spread it; the cooler's pressure will do that."
+      }
+    },
+    {
+      "id": 6,
+      "text": "Lower the cooler straight down onto the processor, aligning the four screws with the four mounting holes. Do not slide it.",
+      "depends_on": [4, 5],
+      "evidence": "visual",
+      "safety": false,
+      "preconditions": {
+        "film_on": false,
+        "paste_present": true,
+        "psu": "off"
+      },
+      "effects": {
+        "cooler": "seated"
+      },
+      "source": {
+        "page": 2,
+        "quote": "Lower the cooler straight down onto the processor, aligning the four screws with the four mounting holes. Do not slide it."
+      }
+    },
+    {
+      "id": 7,
+      "text": "Tighten the four screws in a diagonal pattern: top-left, bottom-right, top-right, bottom-left. Give each screw two turns at a time and repeat until all four are snug. Never fully tighten one screw before the others.",
+      "depends_on": [6],
+      "evidence": "visual",
+      "safety": false,
+      "preconditions": {
+        "cooler": "seated",
+        "psu": "off"
+      },
+      "constraints": {
+        "max_screw_difference": 1,
+        "required_level": 6,
+        "pattern": [1, 2, 3, 4]
+      },
+      "effects": {
+        "screws_snug": true
+      },
+      "source": {
+        "page": 2,
+        "quote": "Tighten the four screws in a diagonal pattern: top-left, bottom-right, top-right, bottom-left. Give each screw two turns at a time and repeat until all four are snug. Never fully tighten one screw before the others."
+      }
+    },
+    {
+      "id": 8,
+      "text": "Plug the cooler fan cable into the CPU_FAN header.",
+      "depends_on": [6],
+      "evidence": "sensor",
+      "safety": false,
+      "preconditions": {
+        "cooler": "seated",
+        "psu": "off"
+      },
+      "effects": {
+        "fan_connected": true
+      },
+      "source": {
+        "page": 2,
+        "quote": "Plug the cooler fan cable into the CPU_FAN header."
+      }
+    },
+    {
+      "id": 9,
+      "text": "Plug the power cable in and switch the power supply on.",
+      "depends_on": [7, 8],
+      "evidence": "sensor",
+      "safety": false,
+      "preconditions": {
+        "screws_snug": true,
+        "fan_connected": true
+      },
+      "effects": {
+        "psu": "on",
+        "power_cable_plugged": true
+      },
+      "source": {
+        "page": 3,
+        "quote": "Plug the power cable in and switch the power supply on."
+      }
+    },
+    {
+      "id": 10,
+      "text": "Confirm that the fan spins and the processor temperature is below 60 C at idle.",
+      "depends_on": [9],
+      "evidence": "sensor",
+      "safety": false,
+      "preconditions": {
+        "psu": "on",
+        "power_cable_plugged": true
+      },
+      "constraints": {
+        "min_fan_rpm": 500,
+        "max_cpu_temp": 60.0
+      },
+      "effects": {
+        "system_verified": true
+      },
+      "source": {
+        "page": 3,
+        "quote": "Confirm that the fan spins and the processor temperature is below 60 C at idle."
+      }
+    }
+  ],
+  "edges": [
+    {"from": 1, "to": 2},
+    {"from": 2, "to": 3},
+    {"from": 2, "to": 4},
+    {"from": 3, "to": 5},
+    {"from": 4, "to": 6},
+    {"from": 5, "to": 6},
+    {"from": 6, "to": 7},
+    {"from": 6, "to": 8},
+    {"from": 7, "to": 9},
+    {"from": 8, "to": 9},
+    {"from": 9, "to": 10}
+  ]
+}

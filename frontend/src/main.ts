@@ -3,6 +3,8 @@ import { initCoolerScene, CoolerSceneManager } from './cooler_scene';
 import { CoolerStateManager, StateEvent } from './cooler_state';
 import { SensorSimulator } from './sensors';
 import { ARWebSocketClient } from './websocket';
+import { RuleEngine, RuleVerdict, DAGModel } from './rule_engine';
+import groundTruthDAG from '../../dag/ground_truth.json';
 
 document.addEventListener('DOMContentLoaded', () => {
   const viewportContainer = document.getElementById('viewport-container') as HTMLElement;
@@ -23,6 +25,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const hudCoolerToolbelt = document.getElementById('hud-cooler-toolbelt') as HTMLElement;
   const hudPumpFaultControl = document.getElementById('hud-pump-fault-control') as HTMLElement;
   const toggleFault = document.getElementById('toggle-fault') as HTMLInputElement;
+
+  // Rule Engine HUD elements
+  const ruleVerdictPill = document.getElementById('rule-verdict-pill') as HTMLElement;
+  const ruleCurrentStep = document.getElementById('rule-current-step') as HTMLElement;
+  const ruleNextSteps = document.getElementById('rule-next-steps') as HTMLElement;
+  const ruleReasonText = document.getElementById('rule-reason-text') as HTMLElement;
+  const dagSourceSelect = document.getElementById('dag-source-select') as HTMLSelectElement;
 
   // Sensor UI
   const toggleSensorDropout = document.getElementById('toggle-sensor-dropout') as HTMLInputElement;
@@ -46,9 +55,30 @@ document.addEventListener('DOMContentLoaded', () => {
   const chipButtons = document.querySelectorAll<HTMLButtonElement>('.chip-btn');
   const btnVisualCheck = document.getElementById('btn-visual-check') as HTMLButtonElement;
 
-  // State & Sensors
+  // State & Sensors & Rule Engine
   const stateManager = new CoolerStateManager();
   const sensorSim = new SensorSimulator();
+  const ruleEngine = new RuleEngine(groundTruthDAG as DAGModel);
+
+  function updateRuleEngineHUD(verdict?: RuleVerdict | null) {
+    const currentStepId = ruleEngine.getCurrentStep();
+    const nextAllowed = ruleEngine.getNextAllowedSteps();
+    const currentStepDef = ruleEngine.getDAG().steps.find((s) => s.id === currentStepId);
+
+    ruleCurrentStep.textContent = currentStepDef ? `Step ${currentStepId}: ${currentStepDef.text.slice(0, 48)}...` : `Step ${currentStepId}`;
+    ruleNextSteps.textContent = nextAllowed.length > 0 ? nextAllowed.map((n) => `Step ${n}`).join(', ') : 'None (Complete)';
+
+    if (verdict) {
+      ruleVerdictPill.textContent = verdict.verdict.toUpperCase().replace(/_/g, ' ');
+      ruleVerdictPill.className = `verdict-pill verdict-${verdict.verdict}`;
+      ruleReasonText.textContent = verdict.reason;
+    } else {
+      ruleVerdictPill.textContent = 'READY';
+      ruleVerdictPill.className = 'verdict-pill verdict-ok';
+      ruleReasonText.textContent = 'Awaiting first technician action...';
+    }
+  }
+  updateRuleEngineHUD();
 
   // Active scene pointer
   let currentSceneType: 'cooler' | 'pump' = 'cooler';
@@ -233,6 +263,11 @@ document.addEventListener('DOMContentLoaded', () => {
   wsClient.connect();
 
   function onCoolerStateEvent(ev: StateEvent) {
+    const sensorsData = sensorSim.sample(stateManager.getState());
+    const verdict = ruleEngine.evaluate(ev.action, stateManager.getState(), sensorsData);
+    ev.verdict = verdict;
+    updateRuleEngineHUD(verdict);
+
     // Send event message to backend over protocol
     if (wsClient.isConnected()) {
       wsClient.sendRaw({
@@ -242,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
         part: ev.part,
         before: ev.before,
         after: ev.after,
-        verdict: ev.verdict || null,
+        verdict: verdict,
       });
     }
   }
@@ -274,7 +309,8 @@ document.addEventListener('DOMContentLoaded', () => {
       image_b64: frameB64,
       state: stateData,
       sensors: sensorsData,
-      step_id: 1, // Will be bound to rule engine current step in M2
+      step_id: ruleEngine.getCurrentStep(),
+      last_verdict: ruleEngine.getLastVerdict(),
     });
 
     if (sent) {
