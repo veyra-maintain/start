@@ -228,7 +228,9 @@ export function initCoolerScene(
   syringeTip.position.set(0.12, 0, 0);
   pasteTubeGroup.add(syringeTip);
 
+  pasteTubeGroup.name = 'part_paste_tube';
   syringeBody.name = 'part_paste_tube';
+  syringeTip.name = 'part_paste_tube';
   scene.add(pasteTubeGroup);
 
   const tubeLabel = createLabelSprite('THERMAL PASTE TUBE (Hold click on CPU)', '#00ffaa');
@@ -237,6 +239,7 @@ export function initCoolerScene(
 
   // 8. CPU Cooler Unit
   const coolerGroup = new THREE.Group();
+  coolerGroup.name = 'part_cooler';
   // Starts on the left side of workbench; when seated, moves to (0, 0.14, 0) relative to moboGroup
   const COOLER_UNSEATED_POS = new THREE.Vector3(-0.55, 0.94, -0.2);
   const COOLER_SEATED_POS = new THREE.Vector3(-0.15, 0.94, 0);
@@ -254,30 +257,46 @@ export function initCoolerScene(
   // Top cooler fan
   const fanCasing = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, 0.28), new THREE.MeshStandardMaterial({ color: 0x11161f }));
   fanCasing.position.y = 0.18;
+  fanCasing.name = 'part_cooler';
   coolerGroup.add(fanCasing);
 
   const fanBlades = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 8), new THREE.MeshStandardMaterial({ color: 0x2288dd }));
   fanBlades.position.y = 0.19;
+  fanBlades.name = 'part_cooler';
   coolerGroup.add(fanBlades);
 
   // Copper Contact Baseplate
   const baseplate = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.015, 0.22), new THREE.MeshStandardMaterial({ color: 0xb87333, metalness: 0.9, roughness: 0.2 }));
   baseplate.position.y = -0.045;
+  baseplate.name = 'part_cooler_base';
   coolerGroup.add(baseplate);
 
   // Removable Plastic Protective Film on Cooler Base
-  const filmGeo = new THREE.PlaneGeometry(0.22, 0.22);
   const filmMat = new THREE.MeshStandardMaterial({
-    color: 0x33ccff,
+    color: 0x00f0ff,
+    emissive: 0x0088cc,
+    emissiveIntensity: 0.5,
     transparent: true,
-    opacity: 0.6,
+    opacity: 0.85,
     side: THREE.DoubleSide,
   });
-  const filmMesh = new THREE.Mesh(filmGeo, filmMat);
+  const filmMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.24), filmMat);
   filmMesh.rotation.x = Math.PI / 2;
   filmMesh.position.y = -0.054;
   filmMesh.name = 'part_film';
   coolerGroup.add(filmMesh);
+
+  // Protruding Peel Tab on the front of cooler baseplate (directly visible from above workbench)
+  const filmTabMat = new THREE.MeshStandardMaterial({
+    color: 0xffcc00,
+    emissive: 0xffaa00,
+    emissiveIntensity: 0.7,
+    roughness: 0.2,
+  });
+  const filmTab = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.12), filmTabMat);
+  filmTab.position.set(0, -0.045, 0.16);
+  filmTab.name = 'part_film';
+  coolerGroup.add(filmTab);
 
   const filmLabel = createLabelSprite('PEEL FILM (Click)', '#00ffff');
   filmLabel.position.set(0, -0.12, 0);
@@ -431,7 +450,82 @@ export function initCoolerScene(
     }
     raycaster.setFromCamera(rayVec, camera);
     const intersects = raycaster.intersectObjects(scene.children, true);
+    for (const hit of intersects) {
+      let obj: THREE.Object3D | null = hit.object;
+      if (!obj.visible) continue;
+      while (obj && obj !== scene) {
+        if (obj.name && obj.name.startsWith('part_')) {
+          return hit;
+        }
+        obj = obj.parent;
+      }
+    }
     return intersects.length > 0 ? intersects[0] : null;
+  }
+
+  function updateToolVisuals(tool: 'none' | 'wipe' | 'paste' | 'cooler') {
+    // 1. Wipe tool visual feedback in 3D
+    if (tool === 'wipe') {
+      wipeMesh.position.y = 0.88;
+      (wipeMesh.material as THREE.MeshStandardMaterial).emissive.setHex(0x0088ff);
+      (wipeMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.6;
+    } else {
+      wipeMesh.position.y = 0.81;
+      (wipeMesh.material as THREE.MeshStandardMaterial).emissive.setHex(0x000000);
+      (wipeMesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 0;
+    }
+
+    // 2. Paste tube visual feedback in 3D
+    if (tool === 'paste') {
+      pasteTubeGroup.position.y = 0.90;
+      (syringeBody.material as THREE.MeshStandardMaterial).emissive.setHex(0x00ffaa);
+      (syringeBody.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.5;
+    } else {
+      pasteTubeGroup.position.y = 0.83;
+      (syringeBody.material as THREE.MeshStandardMaterial).emissive.setHex(0x000000);
+      (syringeBody.material as THREE.MeshStandardMaterial).emissiveIntensity = 0;
+    }
+
+    // 3. Cooler visual feedback in 3D
+    const st = stateManager.getState();
+    if (st.cooler !== 'seated') {
+      if (tool === 'cooler') {
+        coolerGroup.position.y = 1.05;
+        (heatsink.material as THREE.MeshStandardMaterial).emissive.setHex(0x00e5ff);
+        (heatsink.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.4;
+      } else {
+        coolerGroup.position.y = 0.94;
+        (heatsink.material as THREE.MeshStandardMaterial).emissive.setHex(0x000000);
+        (heatsink.material as THREE.MeshStandardMaterial).emissiveIntensity = 0;
+      }
+    }
+  }
+
+  function updateActiveToolHUD(tool: 'none' | 'wipe' | 'paste' | 'cooler') {
+    updateToolVisuals(tool);
+    const banner = document.getElementById('hud-active-tool-banner');
+    if (!banner) return;
+    if (tool === 'wipe') {
+      banner.innerHTML = `<span>🧽 <strong>EQUIPPED: Alcohol Wipe</strong> &bull; Click CPU to clean surface</span><button class="unequip-btn" id="btn-banner-unequip">✕ Unequip</button>`;
+      banner.style.display = 'flex';
+    } else if (tool === 'paste') {
+      banner.innerHTML = `<span>🧪 <strong>EQUIPPED: Thermal Paste Syringe</strong> &bull; Click CPU to apply pea-sized drop (0.45)</span><button class="unequip-btn" id="btn-banner-unequip">✕ Unequip</button>`;
+      banner.style.display = 'flex';
+    } else if (tool === 'cooler') {
+      banner.innerHTML = `<span>❄️ <strong>EQUIPPED: CPU Cooler</strong> &bull; Click CPU socket to lower & seat straight down</span><button class="unequip-btn" id="btn-banner-unequip">✕ Unequip</button>`;
+      banner.style.display = 'flex';
+    } else {
+      banner.style.display = 'none';
+    }
+
+    const unequipBtn = document.getElementById('btn-banner-unequip');
+    if (unequipBtn) {
+      unequipBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        activeTool = 'none';
+        updateActiveToolHUD('none');
+      });
+    }
   }
 
   function onPointerDown(e: MouseEvent) {
@@ -450,8 +544,10 @@ export function initCoolerScene(
 
     if (!partName) return;
 
+    const st = stateManager.getState();
+
     // Handle Raycast Actions
-    // Clicking anywhere on the PSU unit or rocker switch toggles the PSU
+    // 1. PSU Unit or rocker switch toggles PSU
     if (partName === 'part_psu_switch' || partName === 'part_psu') {
       handleAction('toggle_psu');
     } else if (partName === 'part_power_cable') {
@@ -459,32 +555,39 @@ export function initCoolerScene(
     } else if (partName === 'part_esd_bar') {
       handleAction('discharge_esd');
     } else if (partName === 'part_wipe') {
-      activeTool = 'wipe';
-      wipeLabel.material.map = createTextTexture('WIPE TOOL ACTIVE', '#ffdd00');
+      activeTool = activeTool === 'wipe' ? 'none' : 'wipe';
+      updateActiveToolHUD(activeTool);
     } else if (partName === 'part_paste_tube') {
-      activeTool = 'paste';
-      tubeLabel.material.map = createTextTexture('PASTE TUBE ACTIVE - HOLD CPU', '#00ffaa');
-    } else if (partName === 'part_cpu') {
-      if (activeTool === 'wipe') {
-        handleAction('wipe_cpu');
-      } else if (activeTool === 'paste') {
-        // Start holding to dispense paste
-        isHoldingPaste = true;
-        // Calculate offset from CPU center based on intersection point in CPU local space
-        const localHit = cpuMesh.worldToLocal(hit.point.clone());
-        const offset = Math.sqrt(localHit.x * localHit.x + localHit.z * localHit.z) / 0.1; // normalized
-        dispensePasteContinuous(offset);
-      } else if (activeTool === 'cooler') {
-        handleAction('seat_cooler');
-      }
-    } else if (partName === 'part_film') {
+      activeTool = activeTool === 'paste' ? 'none' : 'paste';
+      updateActiveToolHUD(activeTool);
+    } else if (partName === 'part_film' || partName === 'part_cooler_base') {
+      // Direct peel of protective plastic film
       handleAction('peel_film');
+      activeTool = 'none';
+      updateActiveToolHUD('none');
     } else if (partName === 'part_cooler') {
-      if (activeTool !== 'cooler') {
-        activeTool = 'cooler';
-        coolerMainLabel.material.map = createTextTexture('COOLER SELECTED: CLICK CPU TO LOWER', '#ffff00');
-      } else {
+      if (st.film_on) {
+        // If clicked cooler while film is still on, peel the film!
+        handleAction('peel_film');
+      } else if (st.cooler !== 'seated') {
+        activeTool = activeTool === 'cooler' ? 'none' : 'cooler';
+        updateActiveToolHUD(activeTool);
+      }
+    } else if (partName === 'part_cpu') {
+      if (activeTool === 'wipe' || !st.cpu_clean) {
+        handleAction('wipe_cpu');
+        activeTool = 'none';
+        updateActiveToolHUD('none');
+      } else if (activeTool === 'paste' || !st.paste.present) {
+        const localHit = cpuMesh.worldToLocal(hit.point.clone());
+        const offset = Math.sqrt(localHit.x * localHit.x + localHit.z * localHit.z) / 0.1;
+        handleAction('apply_paste', { size: 0.45, offset: parseFloat(offset.toFixed(2)) });
+        activeTool = 'none';
+        updateActiveToolHUD('none');
+      } else if (activeTool === 'cooler' || st.cooler !== 'seated') {
         handleAction('seat_cooler');
+        activeTool = 'none';
+        updateActiveToolHUD('none');
       }
     } else if (partName.startsWith('part_screw_')) {
       const screwIndex = parseInt(partName.replace('part_screw_', ''), 10) - 1;
@@ -618,6 +721,12 @@ export function initCoolerScene(
         break;
       }
 
+      case 'reset_all': {
+        activeTool = 'none';
+        updateActiveToolHUD('none');
+        break;
+      }
+
       default:
         console.warn('Unknown cooler action:', actionName);
     }
@@ -680,8 +789,9 @@ export function initCoolerScene(
       pastePancake.visible = false;
     }
 
-    // 6. Protective Film
+    // 6. Protective Film & Protruding Tab
     filmMesh.visible = st.film_on;
+    filmTab.visible = st.film_on;
     filmLabel.visible = false;
 
     // 7. Cooler Seated Position
@@ -775,12 +885,10 @@ export function initCoolerScene(
     // Dynamic Reticle Target Readout (clean HUD tooltip instead of giant 3D billboards)
     const reticleTagEl = document.getElementById('reticle-hover-target');
     if (reticleTagEl) {
-      const rayVec = isPointerLocked ? new THREE.Vector2(0, 0) : mouse;
-      raycaster.setFromCamera(rayVec, camera);
-      const intersects = raycaster.intersectObjects(scene.children, true);
+      const hit = getRaycastIntersect();
       let hoveredPart = '';
-      if (intersects.length > 0) {
-        let obj: THREE.Object3D | null = intersects[0].object;
+      if (hit) {
+        let obj: THREE.Object3D | null = hit.object;
         while (obj && obj !== scene) {
           if (obj.name && obj.name.startsWith('part_')) {
             hoveredPart = obj.name;
@@ -795,32 +903,53 @@ export function initCoolerScene(
         switch (hoveredPart) {
           case 'part_psu':
           case 'part_psu_switch':
-            text = `PSU Switch [${st.psu.toUpperCase()}] - Click to toggle`;
+            text = `PSU Rocker Switch [${st.psu.toUpperCase()}] - Click to toggle`;
             break;
           case 'part_power_cable':
-            text = `Power Cable [${st.power_cable_plugged ? 'PLUGGED' : 'UNPLUGGED'}] - Click to toggle`;
+            text = `Power Cable [${st.power_cable_plugged ? 'PLUGGED' : 'UNPLUGGED'}] - Click to ${st.power_cable_plugged ? 'unplug' : 'plug in'}`;
             break;
           case 'part_esd_bar':
-            text = `ESD Ground Bar [${st.esd_discharged ? 'DISCHARGED' : 'PENDING'}] - Press 'E' or click`;
-            break;
-          case 'part_cpu':
-            text = !st.cpu_clean
-              ? 'CPU [DIRTY] - Click with alcohol wipe'
-              : st.paste.present
-              ? `CPU [Paste: ${(st.paste.size * 100).toFixed(0)}%]`
-              : 'CPU [CLEAN] - Hold click with paste tube';
+            text = `ESD Ground Metal [${st.esd_discharged ? 'DISCHARGED' : 'PENDING'}] - Press 'E' or click`;
             break;
           case 'part_wipe':
-            text = 'Alcohol Wipe Tool - Click to equip';
+            text = activeTool === 'wipe' ? '🧽 Alcohol Wipe [EQUIPPED] - Click to unequip' : '🧽 Alcohol Wipe - Click to equip';
             break;
           case 'part_paste_tube':
-            text = 'Thermal Paste Tube - Click to equip';
+            text = activeTool === 'paste' ? '🧪 Thermal Paste Tube [EQUIPPED] - Click to unequip' : '🧪 Thermal Paste Tube - Click to equip';
             break;
           case 'part_film':
-            text = 'Protective Film - Click to peel off base';
+            text = '⚠️ Protective Plastic Film - CLICK TO PEEL OFF';
+            break;
+          case 'part_cooler_base':
+            text = st.film_on ? '⚠️ Cooler Baseplate [Film Attached] - CLICK TO PEEL FILM' : 'Cooler Baseplate [Clean Copper]';
             break;
           case 'part_cooler':
-            text = st.cooler === 'seated' ? 'Cooler [SEATED]' : 'Cooler Unit - Click to seat on CPU';
+            if (st.cooler === 'seated') {
+              text = 'Cooler [SEATED ON SOCKET]';
+            } else if (st.film_on) {
+              text = '❄️ Cooler Unit [Film Attached] - CLICK TO PEEL FILM';
+            } else if (activeTool === 'cooler') {
+              text = '❄️ Cooler Unit [EQUIPPED] - Click CPU to lower and seat';
+            } else {
+              text = '❄️ Cooler Unit - Click to pick up / seat';
+            }
+            break;
+          case 'part_cpu':
+            if (activeTool === 'wipe') {
+              text = '🧽 CPU - Click to clean with Alcohol Wipe';
+            } else if (activeTool === 'paste') {
+              text = '🧪 CPU - Click to apply pea-sized Thermal Paste (0.45)';
+            } else if (activeTool === 'cooler') {
+              text = '❄️ CPU - Click to lower and seat Cooler straight down';
+            } else if (!st.cpu_clean) {
+              text = 'CPU [DIRTY] - Click with Alcohol Wipe to clean';
+            } else if (!st.paste.present) {
+              text = 'CPU [CLEANED] - Click with Thermal Paste to apply';
+            } else if (st.cooler !== 'seated') {
+              text = `CPU [Paste Applied: ${(st.paste.size * 100).toFixed(0)}%] - Click to seat cooler`;
+            } else {
+              text = 'CPU Socket [Cooler Installed]';
+            }
             break;
           case 'part_screw_1':
             text = `Screw 1 (Top-Left): ${st.screw[0]}/6 - Click (+1), Shift+Click (-1)`;
@@ -836,7 +965,7 @@ export function initCoolerScene(
             break;
           case 'part_fan_cable':
           case 'part_cpu_fan_header':
-            text = st.fan_connected ? 'CPU_FAN Header [CONNECTED]' : 'CPU_FAN Header - Click to plug cable';
+            text = st.fan_connected ? 'CPU_FAN Header [CONNECTED]' : 'CPU_FAN Header & Cable - Click to connect';
             break;
         }
 
@@ -856,6 +985,8 @@ export function initCoolerScene(
   animate();
 
   function destroy() {
+    activeTool = 'none';
+    updateActiveToolHUD('none');
     cancelAnimationFrame(reqId);
     window.removeEventListener('resize', onResize);
     document.removeEventListener('keydown', onKeyDown);

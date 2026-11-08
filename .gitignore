@@ -3,4 +3,5 @@ dist/
 __pycache__/
 *.pyc
 .env
+docs/uploaded_manual.md
 .DS_Store

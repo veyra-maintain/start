@@ -11,6 +11,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+class ExtractDAGPayload(BaseModel):
+    manual_text: str | None = None
+    filename: str | None = None
 
 # Load .env from current directory or parent directory
 env_path = Path(__file__).resolve().parent / ".env"
@@ -64,18 +69,25 @@ async def health():
     }
 
 
-def parse_manual_pages() -> dict[int, str]:
-    """Parse docs/manual.md into page number -> text mapping."""
-    manual_path = Path(__file__).resolve().parent.parent / "docs" / "manual.md"
-    if not manual_path.exists():
-        return {}
-    content = manual_path.read_text(encoding="utf-8")
+def parse_manual_pages(custom_text: str | None = None) -> dict[int, str]:
+    """Parse manual markdown text into page number -> text mapping."""
+    if custom_text:
+        content = custom_text
+    else:
+        manual_path = Path(__file__).resolve().parent.parent / "docs" / "manual.md"
+        if not manual_path.exists():
+            return {}
+        content = manual_path.read_text(encoding="utf-8")
+
     pages = {}
     parts = re.split(r'---\s*Page\s*(\d+):[^-]*---', content)
-    for i in range(1, len(parts), 2):
-        page_num = int(parts[i])
-        page_text = parts[i + 1].strip()
-        pages[page_num] = page_text
+    if len(parts) > 1:
+        for i in range(1, len(parts), 2):
+            page_num = int(parts[i])
+            page_text = parts[i + 1].strip()
+            pages[page_num] = page_text
+    else:
+        pages[1] = content.strip()
     return pages
 
 
@@ -86,12 +98,12 @@ def load_ground_truth_dag() -> dict:
     return json.loads(gt_path.read_text(encoding="utf-8"))
 
 
-def validate_and_score_dag(extracted_dag: dict) -> tuple[dict, list]:
+def validate_and_score_dag(extracted_dag: dict, custom_text: str | None = None) -> tuple[dict, list]:
     """
-    Validates extracted quotes against docs/manual.md pages.
+    Validates extracted quotes against docs/manual.md pages (or uploaded manual pages).
     Scores extracted DAG against dag/ground_truth.json.
     """
-    pages = parse_manual_pages()
+    pages = parse_manual_pages(custom_text)
     gt_dag = load_ground_truth_dag()
 
     # 1. Quote validation
@@ -172,24 +184,32 @@ def validate_and_score_dag(extracted_dag: dict) -> tuple[dict, list]:
 
 
 @app.post("/extract_dag")
-async def extract_dag_endpoint():
-    """Extract DAG from docs/manual.md, validate quotes, and score against ground truth."""
+async def extract_dag_endpoint(payload: ExtractDAGPayload | None = None):
+    """Extract DAG from docs/manual.md or uploaded documentation, validate quotes, and score against ground truth."""
     gt_dag = load_ground_truth_dag()
+    manual_text = payload.manual_text if (payload and payload.manual_text) else None
+    filename = payload.filename if (payload and payload.filename) else "manual.md"
+
+    if manual_text:
+        try:
+            up_path = Path(__file__).resolve().parent.parent / "docs" / "uploaded_manual.md"
+            up_path.write_text(manual_text, encoding="utf-8")
+        except Exception:
+            pass
 
     if MOCK_MODE or genai_client is None:
         # Mock mode requirement:
         # Return ground truth with one missing edge and one wrong evidence type
         mock_dag = json.loads(json.dumps(gt_dag))
-        # Drop edge 6 -> 8
         mock_dag["edges"] = [e for e in mock_dag["edges"] if not (e["from"] == 6 and e["to"] == 8)]
-        # Change step 8 evidence from "sensor" to "visual"
         for s in mock_dag["steps"]:
             if s["id"] == 8:
                 s["evidence"] = "visual"
 
-        score, validation = validate_and_score_dag(mock_dag)
+        score, validation = validate_and_score_dag(mock_dag, custom_text=manual_text)
         return {
-            "mode": "mock",
+            "mode": "mock" if not manual_text else "uploaded_mock",
+            "filename": filename,
             "dag": mock_dag,
             "score": score,
             "validation": validation,
@@ -199,8 +219,7 @@ async def extract_dag_endpoint():
     try:
         from google.genai import types
 
-        manual_path = Path(__file__).resolve().parent.parent / "docs" / "manual.md"
-        manual_text = manual_path.read_text(encoding="utf-8")
+        text_to_analyze = manual_text or (Path(__file__).resolve().parent.parent / "docs" / "manual.md").read_text(encoding="utf-8")
 
         prompt = (
             "You are a technical document analyst. Extract the task dependency graph (DAG) "
@@ -221,7 +240,7 @@ async def extract_dag_endpoint():
             '  "edges": [{"from": 1, "to": 2}, ...]\n'
             "}\n\n"
             "Manual text:\n"
-            f"{manual_text}\n\n"
+            f"{text_to_analyze}\n\n"
             "Return ONLY raw JSON, with no code fences or markdown."
         )
 
@@ -237,10 +256,11 @@ async def extract_dag_endpoint():
             resp_text = re.sub(r"\n```$", "", resp_text)
 
         extracted_dag = json.loads(resp_text)
-        score, validation = validate_and_score_dag(extracted_dag)
+        score, validation = validate_and_score_dag(extracted_dag, custom_text=manual_text)
 
         return {
-            "mode": "live",
+            "mode": "live" if not manual_text else "uploaded_live",
+            "filename": filename,
             "dag": extracted_dag,
             "score": score,
             "validation": validation,
@@ -252,9 +272,10 @@ async def extract_dag_endpoint():
         for s in mock_dag["steps"]:
             if s["id"] == 8:
                 s["evidence"] = "visual"
-        score, validation = validate_and_score_dag(mock_dag)
+        score, validation = validate_and_score_dag(mock_dag, custom_text=manual_text)
         return {
             "mode": "fallback_mock",
+            "filename": filename,
             "error": str(exc),
             "dag": mock_dag,
             "score": score,

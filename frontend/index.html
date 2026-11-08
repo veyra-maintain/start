@@ -41,6 +41,9 @@
         </div>
       </header>
 
+      <!-- Active Tool Equipped Notification Banner -->
+      <div id="hud-active-tool-banner" class="hud-active-tool-banner" style="display: none;"></div>
+
       <!-- Center Reticle / Crosshair -->
       <div class="hud-center">
         <div class="reticle">
@@ -152,7 +155,11 @@
             </select>
           </div>
           <div class="dag-actions-row">
-            <button id="btn-extract-dag" class="hud-action-btn">Extract DAG from Manual</button>
+            <button id="btn-extract-dag" class="hud-action-btn">Extract DAG</button>
+            <label class="hud-action-btn secondary upload-btn" title="Upload custom documentation (.md or .txt)">
+              <span>📁 Upload Manual</span>
+              <input type="file" id="upload-manual-input" accept=".md,.txt" style="display:none" />
+            </label>
             <button id="btn-show-dag-score" class="hud-action-btn secondary">DAG Scores</button>
           </div>
           <div id="dag-score-summary" class="dag-summary-text">

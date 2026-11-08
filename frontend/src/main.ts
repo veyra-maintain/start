@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const dagSourceSelect = document.getElementById('dag-source-select') as HTMLSelectElement;
   const btnExtractDag = document.getElementById('btn-extract-dag') as HTMLButtonElement;
   const btnShowDagScore = document.getElementById('btn-show-dag-score') as HTMLButtonElement;
+  const uploadManualInput = document.getElementById('upload-manual-input') as HTMLInputElement;
   const dagScoreSummary = document.getElementById('dag-score-summary') as HTMLElement;
 
   // Sensor UI
@@ -112,6 +113,55 @@ document.addEventListener('DOMContentLoaded', () => {
       btnExtractDag.disabled = false;
     }
   });
+
+  if (uploadManualInput) {
+    uploadManualInput.addEventListener('change', async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      dagScoreSummary.textContent = `Reading & extracting DAG from ${file.name}...`;
+      btnExtractDag.disabled = true;
+
+      try {
+        const text = await file.text();
+        const res = await fetch(`${httpBackendUrl}/extract_dag`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ manual_text: text, filename: file.name }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          currentExtractedDag = data.dag;
+          currentDagScore = data.score;
+          currentQuoteValidation = data.validation || [];
+
+          // Enable & select extracted option in dropdown
+          const extractedOpt = dagSourceSelect.querySelector<HTMLOptionElement>('option[value="extracted"]');
+          if (extractedOpt) {
+            extractedOpt.disabled = false;
+            extractedOpt.textContent = `Extracted: ${file.name}`;
+          }
+          dagSourceSelect.value = 'extracted';
+          ruleEngine.setDAG(data.dag);
+          updateRuleEngineHUD();
+
+          const s = data.score;
+          dagScoreSummary.textContent = `Uploaded ${file.name}: ${data.dag.steps?.length || 0} steps | Step P/R: ${(s.step_precision * 100).toFixed(0)}%/${(s.step_recall * 100).toFixed(0)}%`;
+
+          renderDagScoreModal(data.score, data.validation, data.mode);
+        } else {
+          dagScoreSummary.textContent = `Extraction failed for ${file.name}.`;
+        }
+      } catch (err) {
+        console.error('File upload extraction error:', err);
+        dagScoreSummary.textContent = 'Error during documentation upload.';
+      } finally {
+        btnExtractDag.disabled = false;
+        uploadManualInput.value = '';
+      }
+    });
+  }
 
   btnShowDagScore.addEventListener('click', () => {
     if (currentDagScore) {
@@ -205,7 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const nextAllowed = ruleEngine.getNextAllowedSteps();
     const currentStepDef = ruleEngine.getDAG().steps.find((s) => s.id === currentStepId);
 
-    ruleCurrentStep.textContent = currentStepDef ? `Step ${currentStepId}: ${currentStepDef.text.slice(0, 48)}...` : `Step ${currentStepId}`;
+    ruleCurrentStep.textContent = currentStepDef ? `Step ${currentStepId}: ${currentStepDef.text}` : `Step ${currentStepId}`;
     ruleNextSteps.textContent = nextAllowed.length > 0 ? nextAllowed.map((n) => `Step ${n}`).join(', ') : 'None (Complete)';
 
     if (verdict) {
