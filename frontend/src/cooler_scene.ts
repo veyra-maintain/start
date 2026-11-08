@@ -662,7 +662,7 @@ export function initCoolerScene(
 
     // 6. Protective Film
     filmMesh.visible = st.film_on;
-    filmLabel.visible = st.film_on;
+    filmLabel.visible = false;
 
     // 7. Cooler Seated Position
     if (st.cooler === 'seated') {
@@ -752,6 +752,84 @@ export function initCoolerScene(
       fanBlades.rotation.y += delta * 25.0;
     }
 
+    // Dynamic Reticle Target Readout (clean HUD tooltip instead of giant 3D billboards)
+    const reticleTagEl = document.getElementById('reticle-hover-target');
+    if (reticleTagEl) {
+      const rayVec = isPointerLocked ? new THREE.Vector2(0, 0) : mouse;
+      raycaster.setFromCamera(rayVec, camera);
+      const intersects = raycaster.intersectObjects(scene.children, true);
+      let hoveredPart = '';
+      if (intersects.length > 0) {
+        let obj: THREE.Object3D | null = intersects[0].object;
+        while (obj && obj !== scene) {
+          if (obj.name && obj.name.startsWith('part_')) {
+            hoveredPart = obj.name;
+            break;
+          }
+          obj = obj.parent;
+        }
+      }
+
+      if (hoveredPart) {
+        let text = '';
+        switch (hoveredPart) {
+          case 'part_psu_switch':
+            text = `PSU Switch [${st.psu.toUpperCase()}] - Click to toggle`;
+            break;
+          case 'part_power_cable':
+            text = `Power Cable [${st.power_cable_plugged ? 'PLUGGED' : 'UNPLUGGED'}] - Click to toggle`;
+            break;
+          case 'part_esd_bar':
+            text = `ESD Ground Bar [${st.esd_discharged ? 'DISCHARGED' : 'PENDING'}] - Press 'E' or click`;
+            break;
+          case 'part_cpu':
+            text = !st.cpu_clean
+              ? 'CPU [DIRTY] - Click with alcohol wipe'
+              : st.paste.present
+              ? `CPU [Paste: ${(st.paste.size * 100).toFixed(0)}%]`
+              : 'CPU [CLEAN] - Hold click with paste tube';
+            break;
+          case 'part_wipe':
+            text = 'Alcohol Wipe Tool - Click to equip';
+            break;
+          case 'part_paste_tube':
+            text = 'Thermal Paste Tube - Click to equip';
+            break;
+          case 'part_film':
+            text = 'Protective Film - Click to peel off base';
+            break;
+          case 'part_cooler':
+            text = st.cooler === 'seated' ? 'Cooler [SEATED]' : 'Cooler Unit - Click to seat on CPU';
+            break;
+          case 'part_screw_1':
+            text = `Screw 1 (Top-Left): ${st.screw[0]}/6 - Click (+1), Shift+Click (-1)`;
+            break;
+          case 'part_screw_2':
+            text = `Screw 2 (Bottom-Right): ${st.screw[1]}/6 - Click (+1), Shift+Click (-1)`;
+            break;
+          case 'part_screw_3':
+            text = `Screw 3 (Top-Right): ${st.screw[2]}/6 - Click (+1), Shift+Click (-1)`;
+            break;
+          case 'part_screw_4':
+            text = `Screw 4 (Bottom-Left): ${st.screw[3]}/6 - Click (+1), Shift+Click (-1)`;
+            break;
+          case 'part_fan_cable':
+          case 'part_cpu_fan_header':
+            text = st.fan_connected ? 'CPU_FAN Header [CONNECTED]' : 'CPU_FAN Header - Click to plug cable';
+            break;
+        }
+
+        if (text) {
+          reticleTagEl.textContent = text;
+          reticleTagEl.style.display = 'block';
+        } else {
+          reticleTagEl.style.display = 'none';
+        }
+      } else {
+        reticleTagEl.style.display = 'none';
+      }
+    }
+
     renderer.render(scene, camera);
   }
   animate();
@@ -806,8 +884,9 @@ function createTextTexture(text: string, color = '#00f0ff'): THREE.CanvasTexture
 
 function createLabelSprite(text: string, color = '#00f0ff'): THREE.Sprite {
   const tex = createTextTexture(text, color);
-  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false });
+  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: true, depthWrite: false });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(0.48, 0.14, 1);
+  sprite.scale.set(0.12, 0.035, 1);
+  sprite.visible = false; // Hidden by default to keep the 3D scene completely unobstructed
   return sprite;
 }
